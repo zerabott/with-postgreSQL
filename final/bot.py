@@ -3430,7 +3430,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         return
     
-    # Report comment
+    # Report comment - Show reason selection
     if data.startswith("report_comment_"):
         comment_id = int(data.replace("report_comment_", ""))
         
@@ -3449,8 +3449,79 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.answer("⚠️ You have already reported this comment!")
             return
         
-        report_count = report_abuse(user_id, "comment", comment_id, "User reported via bot")
-        await query.answer("🚩 Comment reported! Admins will review it.")
+        # Get the comment for context
+        comment = get_comment_by_id(comment_id)
+        if not comment:
+            await query.answer("❌ Comment not found!")
+            return
+        
+        comment_preview = truncate_text(comment[3], 100)
+        sequential_number = get_comment_sequential_number(comment_id)
+        
+        # Show report reason selection
+        report_keyboard = [
+            [
+                InlineKeyboardButton("🚫 Spam", callback_data=f"report_reason_spam_{comment_id}"),
+                InlineKeyboardButton("🤬 Harassment", callback_data=f"report_reason_harassment_{comment_id}")
+            ],
+            [
+                InlineKeyboardButton("🔞 Inappropriate Content", callback_data=f"report_reason_inappropriate_{comment_id}"),
+                InlineKeyboardButton("💢 Hate Speech", callback_data=f"report_reason_hate_{comment_id}")
+            ],
+            [
+                InlineKeyboardButton("🎭 Fake Information", callback_data=f"report_reason_fake_{comment_id}"),
+                InlineKeyboardButton("⚖️ Other Violation", callback_data=f"report_reason_other_{comment_id}")
+            ],
+            [
+                InlineKeyboardButton("🚫 Cancel", callback_data="cancel_to_menu")
+            ]
+        ]
+        report_reply_markup = InlineKeyboardMarkup(report_keyboard)
+        
+        await query.edit_message_text(
+            f"⚠️ **Report Comment #{sequential_number}**\n\n"
+            f"*Comment preview:*\n_{escape_markdown_text(comment_preview)}_\n\n"
+            f"**Why are you reporting this comment?**\n\n"
+            f"Please select a reason:",
+            reply_markup=report_reply_markup,
+            parse_mode="MarkdownV2"
+        )
+        return
+    
+    # Handle report reason selection
+    if data.startswith("report_reason_"):
+        parts = data.replace("report_reason_", "").split("_")
+        reason_code = parts[0]
+        comment_id = int(parts[1])
+        
+        # Map reason codes to readable reasons
+        reason_map = {
+            "spam": "Spam",
+            "harassment": "Harassment/Bullying", 
+            "inappropriate": "Inappropriate Content",
+            "hate": "Hate Speech",
+            "fake": "Fake Information/Misinformation",
+            "other": "Other Community Guidelines Violation"
+        }
+        
+        reason = reason_map.get(reason_code, "Other Violation")
+        
+        # Submit the report
+        report_count = report_abuse(user_id, "comment", comment_id, reason)
+        await query.answer(f"🚩 Comment reported for: {reason}\n\nAdmins will review it soon.")
+        
+        # Update the message to show report confirmation
+        await query.edit_message_text(
+            f"✅ **Report Submitted**\n\n"
+            f"Thank you for helping keep our community safe\\!\n\n"
+            f"**Reason:** {escape_markdown_text(reason)}\n\n"
+            f"Our moderation team will review this report\\. "
+            f"You can return to browsing using the button below\\.",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("🏠 Main Menu", callback_data="menu")
+            ]]),
+            parse_mode="MarkdownV2"
+        )
         
         # Notify admins if report threshold reached
         if report_count >= 5:
