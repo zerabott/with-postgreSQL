@@ -157,7 +157,6 @@ class BackupManager:
                         ORDER BY created_at DESC
                         LIMIT ?
                     """, (limit,))
-                    
                 metadata_dict = {}
                     for row in cursor.fetchall():
                         metadata_dict[row[0]] = {
@@ -359,6 +358,7 @@ def get_backup_status() -> dict:
         'is_running': backup_manager.running,
         **backup_manager.get_backup_stats()
     }
+
 
 
 
