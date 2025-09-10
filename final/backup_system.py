@@ -158,29 +158,29 @@ class BackupManager:
                         LIMIT ?
                     """, (limit,))
                 metadata_dict = {}
-                    for row in cursor.fetchall():
-                        metadata_dict[row[0]] = {
-                            'file_size': row[1],
-                            'record_count': row[2],
-                            'backup_type': row[3],
-                            'created_at': row[4],
-                            'checksum': row[5]
-                        }
+                for row in cursor.fetchall():
+                    metadata_dict[row[0]] = {
+                        'file_size': row[1],
+                        'record_count': row[2],
+                        'backup_type': row[3],
+                        'created_at': row[4],
+                        'checksum': row[5]
+                    }
+                
+                # Merge filesystem and database info
+                for backup_file in backup_files[:limit]:
+                    filename = backup_file['filename']
+                    backup_info = {
+                        'filename': filename,
+                        'path': backup_file['path'],
+                        'size': backup_file['size'],
+                        'created': backup_file['created']
+                    }
                     
-                    # Merge filesystem and database info
-                    for backup_file in backup_files[:limit]:
-                        filename = backup_file['filename']
-                        backup_info = {
-                            'filename': filename,
-                            'path': backup_file['path'],
-                            'size': backup_file['size'],
-                            'created': backup_file['created']
-                        }
-                        
-                        if filename in metadata_dict:
-                            backup_info.update(metadata_dict[filename])
-                        
-                        backups.append(backup_info)
+                    if filename in metadata_dict:
+                        backup_info.update(metadata_dict[filename])
+                    
+                    backups.append(backup_info)
             
             except sqlite3.OperationalError:
                 # backup_metadata table might not exist
@@ -358,11 +358,3 @@ def get_backup_status() -> dict:
         'is_running': backup_manager.running,
         **backup_manager.get_backup_stats()
     }
-
-
-
-
-
-
-
-
