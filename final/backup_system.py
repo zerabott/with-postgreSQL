@@ -46,7 +46,7 @@ class BackupManager:
             logger.error(f"Failed to calculate checksum for {file_path}: {e}")
             return ""
     
-   def get_record_count(self, db_path: str) -> int:
+    def get_record_count(self, db_path: str) -> int:
         """Get total record count from database"""
         try:
             conn = get_db()
@@ -359,4 +359,5 @@ def get_backup_status() -> dict:
         'is_running': backup_manager.running,
         **backup_manager.get_backup_stats()
     }
+
 
