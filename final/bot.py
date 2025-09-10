@@ -3074,12 +3074,13 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 else:
                     comment_text = f"comment\\# {sequential_number}\n\n{escape_markdown_text(comment[3])}\n\n{formatted_date}"
                 
-                # Create updated keyboard
-                if comment[4]:  # Reply
+                # Create updated keyboard - Always include Reply button for main comments and replies
+                if comment[4]:  # Reply - include reply button for second-level replies too
                     updated_keyboard = [
                         [
                             InlineKeyboardButton(f"{like_emoji} {likes}", callback_data=f"like_comment_{comment_id}"),
                             InlineKeyboardButton(f"{dislike_emoji} {dislikes}", callback_data=f"dislike_comment_{comment_id}"),
+                            InlineKeyboardButton("💬 Reply", callback_data=f"reply_comment_{comment_id}"),
                             InlineKeyboardButton("⚠️ Report", callback_data=f"report_comment_{comment_id}")
                         ]
                     ]
@@ -3222,12 +3223,13 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 else:
                     comment_text = f"comment\\# {sequential_number}\n\n{escape_markdown_text(comment[3])}\n\n{formatted_date}"
                 
-                # Create updated keyboard
-                if comment[4]:  # Reply
+                # Create updated keyboard - Always include Reply button for main comments and replies
+                if comment[4]:  # Reply - include reply button for second-level replies too
                     updated_keyboard = [
                         [
                             InlineKeyboardButton(f"{like_emoji} {likes}", callback_data=f"like_comment_{comment_id}"),
                             InlineKeyboardButton(f"{dislike_emoji} {dislikes}", callback_data=f"dislike_comment_{comment_id}"),
+                            InlineKeyboardButton("💬 Reply", callback_data=f"reply_comment_{comment_id}"),
                             InlineKeyboardButton("⚠️ Report", callback_data=f"report_comment_{comment_id}")
                         ]
                     ]
