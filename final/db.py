@@ -251,8 +251,8 @@ def init_db():
             cursor.execute("SELECT min_points FROM rank_definitions LIMIT 1")
             
             # If we get here, the table has the correct schema, so insert default rank definitions
-            cursor.execute('''
-            INSERT OR IGNORE INTO rank_definitions (rank_id, rank_name, rank_emoji, min_points, max_points, special_perks, is_special)
+           cursor.execute('''
+            INSERT INTO rank_definitions (rank_id, rank_name, rank_emoji, min_points, max_points, special_perks, is_special)
             VALUES 
                 (1, 'Freshman', '🥉', 0, 99, '{}', 0),
                 (2, 'Sophomore', '🥈', 100, 249, '{}', 0),
@@ -261,14 +261,8 @@ def init_db():
                 (5, 'Graduate', '🎓', 1000, 1999, '{"daily_confessions": 10, "priority_review": true}', 0),
                 (6, 'Master', '👑', 2000, 4999, '{"daily_confessions": 15, "priority_review": true, "comment_highlight": true}', 1),
                 (7, 'Legend', '🌟', 5000, NULL, '{"all_perks": true, "unlimited_daily": true, "legend_badge": true}', 1)
-            ''')
-        except sqlite3.OperationalError as e:
-            if "no such column: min_points" in str(e):
-                print("Warning: rank_definitions table exists but has old schema. Run migrations to fix.")
-                # Skip inserting for now - migrations will handle this
-            else:
-                raise e
-        
+            ON CONFLICT (rank_id) DO NOTHING
+        ''')
         # Analytics tables
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS user_activity_log (
