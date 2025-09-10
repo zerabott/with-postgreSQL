@@ -48,6 +48,14 @@ from ranking_integration import (
     award_points_for_reaction_received
 )
 
+# Import enhanced reporting system
+from enhanced_reporting import (
+    show_report_reasons,
+    handle_report_reason_callback,
+    handle_submit_report,
+    handle_cancel_report
+)
+
 # Set up logging
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -2164,7 +2172,7 @@ async def see_comments_callback(update: Update, context: ContextTypes.DEFAULT_TY
     await query.answer()
 
     from html import escape as html_escape
-    from comments import get_comments_paginated, get_parent_comment_for_reply, format_reply
+    # Functions are already imported via 'from comments import *'
 
     try:
         # Parse callback data: see_comments_POST_ID_PAGE
@@ -3293,107 +3301,12 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         return
     
-    # Report comment - Show reason selection
+    # Report comment - Show reason selection using enhanced reporting
     if data.startswith("report_comment_"):
         comment_id = int(data.replace("report_comment_", ""))
-        
-        # Check if user already reported this comment
-        db_conn = get_db_connection()
-        with db_conn.get_connection() as conn:
-            cursor = conn.cursor()
-            placeholder = db_conn.get_placeholder()
-            cursor.execute(
-                f"SELECT COUNT(*) FROM reports WHERE user_id = {placeholder} AND target_type = 'comment' AND target_id = {placeholder}",
-                (user_id, comment_id)
-            )
-            existing_report = cursor.fetchone()[0]
-        
-        if existing_report > 0:
-            await query.answer("⚠️ You have already reported this comment!")
-            return
-        
-        # Get the comment for context
-        comment = get_comment_by_id(comment_id)
-        if not comment:
-            await query.answer("❌ Comment not found!")
-            return
-        
-        comment_preview = truncate_text(comment[3], 100)
-        sequential_number = get_comment_sequential_number(comment_id)
-        
-        # Show report reason selection
-        report_keyboard = [
-            [
-                InlineKeyboardButton("🚫 Spam", callback_data=f"report_reason_spam_{comment_id}"),
-                InlineKeyboardButton("🤬 Harassment", callback_data=f"report_reason_harassment_{comment_id}")
-            ],
-            [
-                InlineKeyboardButton("🔞 Inappropriate Content", callback_data=f"report_reason_inappropriate_{comment_id}"),
-                InlineKeyboardButton("💢 Hate Speech", callback_data=f"report_reason_hate_{comment_id}")
-            ],
-            [
-                InlineKeyboardButton("🎭 Fake Information", callback_data=f"report_reason_fake_{comment_id}"),
-                InlineKeyboardButton("⚖️ Other Violation", callback_data=f"report_reason_other_{comment_id}")
-            ],
-            [
-                InlineKeyboardButton("🚫 Cancel", callback_data="cancel_to_menu")
-            ]
-        ]
-        report_reply_markup = InlineKeyboardMarkup(report_keyboard)
-        
-        await query.edit_message_text(
-            f"⚠️ **Report Comment #{sequential_number}**\n\n"
-            f"*Comment preview:*\n_{escape_markdown_text(comment_preview)}_\n\n"
-            f"**Why are you reporting this comment?**\n\n"
-            f"Please select a reason:",
-            reply_markup=report_reply_markup,
-            parse_mode="MarkdownV2"
-        )
+        await show_report_reasons(update, context, 'comment', comment_id)
         return
     
-    # Handle report reason selection
-    if data.startswith("report_reason_"):
-        parts = data.replace("report_reason_", "").split("_")
-        reason_code = parts[0]
-        comment_id = int(parts[1])
-        
-        # Map reason codes to readable reasons
-        reason_map = {
-            "spam": "Spam",
-            "harassment": "Harassment/Bullying", 
-            "inappropriate": "Inappropriate Content",
-            "hate": "Hate Speech",
-            "fake": "Fake Information/Misinformation",
-            "other": "Other Community Guidelines Violation"
-        }
-        
-        reason = reason_map.get(reason_code, "Other Violation")
-        
-        # Submit the report
-        report_count = report_abuse(user_id, "comment", comment_id, reason)
-        await query.answer(f"🚩 Comment reported for: {reason}\n\nAdmins will review it soon.")
-        
-        # Update the message to show report confirmation
-        await query.edit_message_text(
-            f"✅ **Report Submitted**\n\n"
-            f"Thank you for helping keep our community safe\\!\n\n"
-            f"**Reason:** {escape_markdown_text(reason)}\n\n"
-            f"Our moderation team will review this report\\. "
-            f"You can return to browsing using the button below\\.",
-            reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("🏠 Main Menu", callback_data="menu")
-            ]]),
-            parse_mode="MarkdownV2"
-        )
-        
-        # Notify admins if report threshold reached
-        if report_count >= 5:
-            try:
-                await notify_admins_about_reports(context, "comment", comment_id, report_count)
-            except Exception as e:
-                print(f"Failed to notify admins about reported comment {comment_id}: {e}")
-        
-        return
     
     # Admin dashboard callbacks
     if data == "admin_dashboard":
