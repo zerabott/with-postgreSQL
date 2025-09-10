@@ -150,8 +150,8 @@ class BackupManager:
             # Get metadata from database if available
             try:
                 conn = get_db()
-                    cursor = conn.cursor()
-                    cursor.execute("""
+                cursor = conn.cursor()
+                cursor.execute("""
                         SELECT filename, file_size, record_count, backup_type, created_at, checksum
                         FROM backup_metadata
                         ORDER BY created_at DESC
@@ -359,6 +359,7 @@ def get_backup_status() -> dict:
         'is_running': backup_manager.running,
         **backup_manager.get_backup_stats()
     }
+
 
 
 
