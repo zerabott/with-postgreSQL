@@ -158,7 +158,7 @@ class BackupManager:
                         LIMIT ?
                     """, (limit,))
                     
-                    metadata_dict = {}
+                metadata_dict = {}
                     for row in cursor.fetchall():
                         metadata_dict[row[0]] = {
                             'file_size': row[1],
@@ -359,6 +359,7 @@ def get_backup_status() -> dict:
         'is_running': backup_manager.running,
         **backup_manager.get_backup_stats()
     }
+
 
 
 
