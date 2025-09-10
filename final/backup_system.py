@@ -119,12 +119,12 @@ class BackupManager:
         """Log backup metadata to database"""
         try:
             conn = get_db()
-                cursor = conn.cursor()
-                cursor.execute("""
+            cursor = conn.cursor()
+            cursor.execute("""
                     INSERT INTO backup_metadata (filename, file_size, record_count, backup_type, checksum)
                     VALUES (?, ?, ?, ?, ?)
                 """, (filename, file_size, record_count, backup_type, checksum))
-                conn.commit()
+            conn.commit()
         except Exception as e:
             logger.error(f"Failed to log backup metadata: {e}")
     
@@ -359,5 +359,6 @@ def get_backup_status() -> dict:
         'is_running': backup_manager.running,
         **backup_manager.get_backup_stats()
     }
+
 
 
