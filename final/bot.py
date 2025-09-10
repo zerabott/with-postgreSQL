@@ -6054,7 +6054,7 @@ async def admin_db_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         
         # Format statistics message
-        message_text = "🗄️ *Database Statistics*\n\n"
+        message_text = "🗄️ *Database Statistics*\n\n
         
         # Table counts section
         message_text += "📊 *Table Records*\n"
@@ -6623,19 +6623,19 @@ async def admin_table_info_callback(update: Update, context: ContextTypes.DEFAUL
         await query.answer("❗ Not authorized")
         return
     
-        try:
-            db_conn = get_db_connection()
-            with db_conn.get_connection() as conn:
-                cursor = conn.cursor()
-                
-                # Get table information
-                cursor.execute("""
-                    SELECT name, sql 
-                    FROM sqlite_master 
-                    WHERE type='table' AND name NOT LIKE 'sqlite_%'
-                    ORDER BY name
-                """)
-                tables = cursor.fetchall()
+    try:
+        db_conn = get_db_connection()
+        with db_conn.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Get table names (PostgreSQL style)
+            cursor.execute("""
+                SELECT table_name 
+                FROM information_schema.tables
+                WHERE table_schema = 'public'
+                ORDER BY table_name
+            """)
+            tables = cursor.fetchall()
         
         table_text = "📋 *Database Table Information*\n\n"
         
@@ -6644,13 +6644,21 @@ async def admin_table_info_callback(update: Update, context: ContextTypes.DEFAUL
         else:
             table_text += f"📊 **Total Tables:** `{len(tables)}`\n\n"
             
-            for table_name, create_sql in tables:
+            for (table_name,) in tables:
                 # Get row count for each table
                 try:
                     cursor.execute(f"SELECT COUNT(*) FROM {table_name}")
                     row_count = cursor.fetchone()[0]
-                except:
+                except Exception:
                     row_count = "Error"
+                
+                table_text += f"• `{table_name}` → Rows: `{row_count}`\n"
+        
+        await query.message.reply_text(table_text, parse_mode="Markdown")
+    
+    except Exception as e:
+        await query.message.reply_text(f"⚠️ Error fetching table info: {e}")
+
                 
                 # Get column count
                 try:
@@ -7376,4 +7384,5 @@ def main():
 
 if __name__ == '__main__':
     main()
+
 
