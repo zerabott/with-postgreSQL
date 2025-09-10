@@ -6647,7 +6647,7 @@ async def admin_table_info_callback(update: Update, context: ContextTypes.DEFAUL
             for (table_name,) in tables:
                 # Get row count for each table
                 try:
-                    cursor.execute(f"SELECT COUNT(*) FROM {table_name}")
+                    cursor.execute(f'SELECT COUNT(*) FROM "{table_name}"')
                     row_count = cursor.fetchone()[0]
                 except Exception:
                     row_count = "Error"
@@ -7384,6 +7384,7 @@ def main():
 
 if __name__ == '__main__':
     main()
+
 
 
 
