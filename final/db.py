@@ -209,7 +209,7 @@ def init_db():
         
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS point_transactions (
-            transaction_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            transaction_id SERIAL PRIMARY KEY,
             user_id INTEGER NOT NULL,
             points_change INTEGER NOT NULL,
             transaction_type TEXT NOT NULL,
@@ -222,7 +222,7 @@ def init_db():
         
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS user_achievements (
-            achievement_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            achievement_id SERIAL PRIMARY KEY,
             user_id INTEGER NOT NULL,
             achievement_type TEXT NOT NULL,
             achievement_name TEXT NOT NULL,
@@ -236,7 +236,7 @@ def init_db():
         
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS rank_definitions (
-            rank_id INTEGER PRIMARY KEY,
+            rank_id SERIAL PRIMARY KEY,
             rank_name TEXT NOT NULL,
             rank_emoji TEXT NOT NULL,
             min_points INTEGER NOT NULL,
@@ -272,7 +272,7 @@ def init_db():
         # Analytics tables
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS user_activity_log (
-            log_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            log_id SERIAL PRIMARY KEY,
             user_id INTEGER NOT NULL,
             activity_type TEXT NOT NULL,
             details TEXT,
