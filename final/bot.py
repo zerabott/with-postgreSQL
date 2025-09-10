@@ -2159,10 +2159,13 @@ Choose what you'd like to do:"""
         )
 
 async def see_comments_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle see comments callback - Display comments separately"""
+    """Handle see comments callback - Display comments in a flat structure with quoted-style replies"""
     query = update.callback_query
     await query.answer()
-    
+
+    from html import escape as html_escape
+    from comments import get_comments_paginated, get_parent_comment_for_reply, format_reply
+
     try:
         # Parse callback data: see_comments_POST_ID_PAGE
         if context.user_data.get('refresh_comments') and context.user_data.get('callback_data'):
@@ -2176,279 +2179,137 @@ async def see_comments_callback(update: Update, context: ContextTypes.DEFAULT_TY
             logger.info(f"Processing see_comments callback with data: {query.data}")
             parts = query.data.split("_")
             logger.info(f"Split callback data: {parts}")
-        
+
         post_id = int(parts[2])
         page = int(parts[3])
         logger.info(f"Parsed post_id: {post_id}, page: {page}")
-        
+
         # Store current page in user_data for pagination reference
         context.user_data['current_page'] = page
-        
+
         logger.info(f"Getting paginated comments for post_id: {post_id}, page: {page}")
-        comments_data, current_page, total_pages, total_comments = get_comments_paginated(post_id, page)
-        logger.info(f"Retrieved comments: data={len(comments_data) if comments_data else 0}, current_page={current_page}, total_pages={total_pages}, total_comments={total_comments}")
+        comments_flat, current_page, total_pages, total_comments = get_comments_paginated(post_id, page)
+        logger.info(
+            f"Retrieved comments: data={len(comments_flat) if comments_flat else 0}, current_page={current_page}, total_pages={total_pages}, total_comments={total_comments}"
+        )
     except Exception as e:
         logger.error(f"Error in see_comments_callback: {e}")
         await query.edit_message_text(
             "❗ Sorry, there was an issue loading comments. Please try again."
         )
         return
-    
+
     # First, delete the previous message and send header
     try:
         await query.delete_message()
-    except:
+    except Exception:
         pass
-    
-    if not comments_data:
+
+    if not comments_flat:
         keyboard = [
             [InlineKeyboardButton("💬 Add Comment", callback_data=f"add_comment_{post_id}")],
             [InlineKeyboardButton("🔙 Back to Post", callback_data=f"view_post_{post_id}")],
             [InlineKeyboardButton("🏠 Main Menu", callback_data="menu")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        
+
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
-            text="💬 No comments yet\\. Be the first to comment\\!",
+            text="💬 No comments yet. Be the first to comment!",
             reply_markup=reply_markup,
-            parse_mode="MarkdownV2"
+            parse_mode="HTML"
         )
         return
-    
+
     user_id = update.effective_user.id
-    
+
     # Send header message
-    header_text = f"💬 *Comments \\({total_comments} total\\)*\\n*Page {current_page} of {total_pages}*"
+    header_text = f"<b>💬 Comments ({total_comments} total)</b>\nPage {current_page} of {total_pages}"
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
         text=header_text,
-        parse_mode="MarkdownV2"
+        parse_mode="HTML"
     )
-    
+
     import asyncio
-    
+
     # Send each comment as a separate message with delay
-    for comment_index, comment_data in enumerate(comments_data):
-        comment = comment_data['comment']
-        replies = comment_data['replies']
-        total_replies = comment_data['total_replies']
-        
-        comment_id = comment[0]
-        content = comment[1]
-        timestamp = comment[2]
-        likes = comment[3]
-        dislikes = comment[4]
-        # Calculate sequential comment number based on page and position
-        sequential_comment_number = (current_page - 1) * COMMENTS_PER_PAGE + comment_index + 1
-        
+    for item in comments_flat:
+        comment_id = item['comment_id']
+        content = item['content'] or ""
+        timestamp = item['timestamp']
+        likes = item['likes'] if 'likes' in item else 0
+        dislikes = item['dislikes'] if 'dislikes' in item else 0
+        is_reply = item.get('is_reply', False)
+        comment_number = item.get('comment_number')
+
         # Get user reaction to current comment
         user_reaction = get_user_reaction(user_id, comment_id)
         like_emoji = "👍✅" if user_reaction == "like" else "👍"
         dislike_emoji = "👎✅" if user_reaction == "dislike" else "👎"
-        
-        # Format comment text with proper line spacing using sequential number
-        formatted_date = format_date_only(timestamp)  # Get properly escaped date part
-        comment_text = f"comment\\# {sequential_comment_number}\n\n{escape_markdown_text(content)}\n\n{formatted_date}"
 
-        
-        # Create reaction buttons with adaptive layout based on comment length
-        comment_length = len(content)
-        
-        if comment_length < 100:  # Short comments - compact 2x2 layout
-            comment_keyboard = [
-                [
-                    InlineKeyboardButton(f"{like_emoji} {likes}", callback_data=f"like_comment_{comment_id}"),
-                    InlineKeyboardButton(f"{dislike_emoji} {dislikes}", callback_data=f"dislike_comment_{comment_id}")
-                ],
-                [
-                    InlineKeyboardButton("💬 Reply", callback_data=f"reply_comment_{comment_id}"),
-                    InlineKeyboardButton("⚠️ Report", callback_data=f"report_comment_{comment_id}")
-                ]
+        # Build the text
+        date_text = format_date_only(timestamp)
+        if is_reply and item.get('original_comment'):
+            parent_text = item['original_comment']['content'] or ""
+            # Use HTML escaping for safety
+            formatted = format_reply(html_escape(parent_text), html_escape(content))
+            text = f"{formatted}\n\n<code>comment# {comment_number}</code>\n{date_text}"
+        else:
+            text = f"<b>comment# {comment_number}</b>\n\n{html_escape(content)}\n\n{date_text}"
+
+        # Create reaction buttons (always include Reply and Report in flat model)
+        comment_keyboard = [
+            [
+                InlineKeyboardButton(f"{like_emoji} {likes}", callback_data=f"like_comment_{comment_id}"),
+                InlineKeyboardButton(f"{dislike_emoji} {dislikes}", callback_data=f"dislike_comment_{comment_id}")
+            ],
+            [
+                InlineKeyboardButton("💬 Reply", callback_data=f"reply_comment_{comment_id}"),
+                InlineKeyboardButton("⚠️ Report", callback_data=f"report_comment_{comment_id}")
             ]
-        else:  # Long comments - single row layout for cleaner appearance
-            comment_keyboard = [
-                [
-                    InlineKeyboardButton(f"{like_emoji} {likes}", callback_data=f"like_comment_{comment_id}"),
-                    InlineKeyboardButton(f"{dislike_emoji} {dislikes}", callback_data=f"dislike_comment_{comment_id}"),
-                    InlineKeyboardButton("💬 Reply", callback_data=f"reply_comment_{comment_id}"),
-                    InlineKeyboardButton("⚠️ Report", callback_data=f"report_comment_{comment_id}")
-                ]
-            ]
+        ]
         comment_reply_markup = InlineKeyboardMarkup(comment_keyboard)
-        
+
         # Send the comment
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
-            text=comment_text,
+            text=text,
             reply_markup=comment_reply_markup,
-            parse_mode="MarkdownV2"
+            parse_mode="HTML"
         )
-        
-        # Delay after comment to show separation
-        await asyncio.sleep(1.0)
-        
-        # Send first-level replies and their sub-replies if any
-        if replies:
-            for reply_index, nested_reply in enumerate(replies):
-                reply = nested_reply['reply']
-                sub_replies = nested_reply['sub_replies']
-                total_sub_replies = nested_reply['total_sub_replies']
-                
-                reply_id = reply[0]
-                reply_content = reply[1]
-                reply_timestamp = reply[2]
-                reply_likes = reply[3]
-                reply_dislikes = reply[4]
-                # Calculate sequential reply number
-                sequential_reply_number = reply_index + 1
-                
-                # Get user reaction to this reply
-                reply_user_reaction = get_user_reaction(user_id, reply_id)
-                reply_like_emoji = "👍✅" if reply_user_reaction == "like" else "👍"
-                reply_dislike_emoji = "👎✅" if reply_user_reaction == "dislike" else "👎"
-                
-                # Get parent comment for quoted display
-                parent_comment_info = get_parent_comment_for_reply(reply_id)
-                
-                # Format the reply text with quoted original comment
-                formatted_reply_date = format_date_only(reply_timestamp)  # Get properly escaped date part
-                
-                if parent_comment_info:
-                    # Create a quoted block showing the original comment (like Telegram forwarded message)
-                    parent_preview = escape_markdown_text(parent_comment_info['content'][:150] + "..." if len(parent_comment_info['content']) > 150 else parent_comment_info['content'])
-                    parent_number = parent_comment_info['sequential_number']
-                    
-                    # Format with modern quoted block style (similar to forwarded messages)
-                    quoted_block = f"╭─ 💬 *Replying to comment\\# {parent_number}*\n┃ _{parent_preview}_\n╰────────────────────────────"
-                    reply_text = f"{quoted_block}\n\n*reply\\# {sequential_reply_number}*\n\n{escape_markdown_text(reply_content)}\n\n{formatted_reply_date}"
-                else:
-                    # Fallback to original format if parent not found
-                    reply_text = f"reply\\# {sequential_reply_number}\n\n{escape_markdown_text(reply_content)}\n\n{formatted_reply_date}"
-                
-                # Create reaction buttons for reply - now including Reply button for second-level replies
-                reply_keyboard = [
-                    [
-                        InlineKeyboardButton(f"{reply_like_emoji} {reply_likes}", callback_data=f"like_comment_{reply_id}"),
-                        InlineKeyboardButton(f"{reply_dislike_emoji} {reply_dislikes}", callback_data=f"dislike_comment_{reply_id}"),
-                        InlineKeyboardButton("💬 Reply", callback_data=f"reply_comment_{reply_id}"),
-                        InlineKeyboardButton("⚠️ Report", callback_data=f"report_comment_{reply_id}")
-                    ]
-                ]
-                reply_reply_markup = InlineKeyboardMarkup(reply_keyboard)
-                
-                # Send the first-level reply
-                await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text=reply_text,
-                    reply_markup=reply_reply_markup,
-                    parse_mode="MarkdownV2"
-                )
-                
-                # Small delay between replies
-                await asyncio.sleep(0.3)
-                
-                # Send second-level replies (sub-replies) if any
-                if sub_replies:
-                    for sub_reply_index, sub_reply in enumerate(sub_replies):
-                        sub_reply_id = sub_reply[0]
-                        sub_reply_content = sub_reply[1]
-                        sub_reply_timestamp = sub_reply[2]
-                        sub_reply_likes = sub_reply[3]
-                        sub_reply_dislikes = sub_reply[4]
-                        # Calculate sequential sub-reply number
-                        sequential_sub_reply_number = sub_reply_index + 1
-                        
-                        # Get user reaction to this sub-reply
-                        sub_reply_user_reaction = get_user_reaction(user_id, sub_reply_id)
-                        sub_reply_like_emoji = "👍✅" if sub_reply_user_reaction == "like" else "👍"
-                        sub_reply_dislike_emoji = "👎✅" if sub_reply_user_reaction == "dislike" else "👎"
-                        
-                        # Get parent reply for quoted display
-                        parent_reply_info = get_parent_comment_for_reply(sub_reply_id)
-                        
-                        # Format the sub-reply text with quoted original reply
-                        formatted_sub_reply_date = format_date_only(sub_reply_timestamp)  # Get properly escaped date part
-                        
-                        if parent_reply_info:
-                            # Create a quoted block showing the original reply (with indentation)
-                            parent_preview = escape_markdown_text(parent_reply_info['content'][:100] + "..." if len(parent_reply_info['content']) > 100 else parent_reply_info['content'])
-                            parent_number = parent_reply_info['sequential_number']
-                            
-                            # Format with modern quoted block style with indentation for sub-replies
-                            quoted_block = f"    ╭─ 💬 *Replying to reply\\# {parent_number}*\n    ┃ _{parent_preview}_\n    ╰────────────────────────────"
-                            sub_reply_text = f"{quoted_block}\n\n    *sub\\-reply\\# {sequential_sub_reply_number}*\n\n    {escape_markdown_text(sub_reply_content)}\n\n    {formatted_sub_reply_date}"
-                        else:
-                            # Fallback to original format if parent not found
-                            sub_reply_text = f"    *sub\\-reply\\# {sequential_sub_reply_number}*\n\n    {escape_markdown_text(sub_reply_content)}\n\n    {formatted_sub_reply_date}"
-                        
-                        # Create reaction buttons for sub-reply (no reply button for second-level)
-                        sub_reply_keyboard = [
-                            [
-                                InlineKeyboardButton(f"{sub_reply_like_emoji} {sub_reply_likes}", callback_data=f"like_comment_{sub_reply_id}"),
-                                InlineKeyboardButton(f"{sub_reply_dislike_emoji} {sub_reply_dislikes}", callback_data=f"dislike_comment_{sub_reply_id}"),
-                                InlineKeyboardButton("⚠️ Report", callback_data=f"report_comment_{sub_reply_id}")
-                            ]
-                        ]
-                        sub_reply_reply_markup = InlineKeyboardMarkup(sub_reply_keyboard)
-                        
-                        # Send the sub-reply
-                        await context.bot.send_message(
-                            chat_id=update.effective_chat.id,
-                            text=sub_reply_text,
-                            reply_markup=sub_reply_reply_markup,
-                            parse_mode="MarkdownV2"
-                        )
-                        
-                        # Small delay between sub-replies
-                        await asyncio.sleep(0.2)
-                
-                # Show remaining sub-replies count if any
-                if total_sub_replies > len(sub_replies):
-                    remaining_sub_text = f"        ↳ \\.\\.\\.\\.\\. and {total_sub_replies - len(sub_replies)} more sub\\-replies"
-                    await context.bot.send_message(
-                        chat_id=update.effective_chat.id,
-                        text=remaining_sub_text,
-                        parse_mode="MarkdownV2"
-                    )
-        
-        # Show remaining replies count if any
-        if total_replies > len(replies):
-            remaining_text = f"↳ \\.\\.\\.\\.\\. and {total_replies - len(replies)} more replies"
-            await context.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text=remaining_text,
-                parse_mode="MarkdownV2"
-            )
-    
+
+        # Small delay between comments for readability
+        await asyncio.sleep(0.5)
+
     # Send navigation and action buttons at the end
     nav_keyboard = []
-    
+
     # Navigation buttons
     nav_buttons = []
     if current_page > 1:
         nav_buttons.append(InlineKeyboardButton("⬅️ Previous", callback_data=f"see_comments_{post_id}_{current_page-1}"))
     if current_page < total_pages:
         nav_buttons.append(InlineKeyboardButton("➡️ Next", callback_data=f"see_comments_{post_id}_{current_page+1}"))
-    
+
     if nav_buttons:
         nav_keyboard.append(nav_buttons)
-    
+
     # Action buttons
     nav_keyboard.append([
         InlineKeyboardButton("💬 Add Comment", callback_data=f"add_comment_{post_id}"),
         InlineKeyboardButton("🔙 Back to Post", callback_data=f"view_post_{post_id}")
     ])
     nav_keyboard.append([InlineKeyboardButton("🏠 Main Menu", callback_data="menu")])
-    
+
     nav_reply_markup = InlineKeyboardMarkup(nav_keyboard)
-    
+
     # Send navigation message
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
-        text="📋 *Navigation*",
+        text="<b>📋 Navigation</b>",
         reply_markup=nav_reply_markup,
-        parse_mode="MarkdownV2"
+        parse_mode="HTML"
     )
 
 
