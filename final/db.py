@@ -191,7 +191,7 @@ def init_db():
         # Ranking system tables
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS user_rankings (
-            user_id INTEGER PRIMARY KEY,
+            user_id BIGINT PRIMARY KEY,
             total_points INTEGER DEFAULT 0,
             weekly_points INTEGER DEFAULT 0,
             monthly_points INTEGER DEFAULT 0,
@@ -210,7 +210,7 @@ def init_db():
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS point_transactions (
             transaction_id SERIAL PRIMARY KEY,
-            user_id INTEGER NOT NULL,
+            user_id BIGINT NOT NULL,
             points_change INTEGER NOT NULL,
             transaction_type TEXT NOT NULL,
             reference_id INTEGER,
@@ -223,7 +223,7 @@ def init_db():
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS user_achievements (
             achievement_id SERIAL PRIMARY KEY,
-            user_id INTEGER NOT NULL,
+            user_id BIGINT NOT NULL,
             achievement_type TEXT NOT NULL,
             achievement_name TEXT NOT NULL,
             achievement_description TEXT,
@@ -251,24 +251,32 @@ def init_db():
             cursor.execute("SELECT min_points FROM rank_definitions LIMIT 1")
             
             # If we get here, the table has the correct schema, so insert default rank definitions
+            cursor.execute('''
+                INSERT INTO rank_definitions (rank_id, rank_name, rank_emoji, min_points, max_points, special_perks, is_special)
+                VALUES 
+                    (1, 'Freshman', '🥉', 0, 99, '{}', 0),
+                    (2, 'Sophomore', '🥈', 100, 249, '{}', 0),
+                    (3, 'Junior', '🥇', 250, 499, '{}', 0),
+                    (4, 'Senior', '🏆', 500, 999, '{"daily_confessions": 8}', 0),
+                    (5, 'Graduate', '🎓', 1000, 1999, '{"daily_confessions": 10, "priority_review": true}', 0),
+                    (6, 'Master', '👑', 2000, 4999, '{"daily_confessions": 15, "priority_review": true, "comment_highlight": true}', 1),
+                    (7, 'Legend', '🌟', 5000, NULL, '{"all_perks": true, "unlimited_daily": true, "legend_badge": true}', 1)
+                ON CONFLICT (rank_id) DO NOTHING
+            ''')
+            conn.commit()
             
-        cursor.execute('''
-            INSERT INTO rank_definitions (rank_id, rank_name, rank_emoji, min_points, max_points, special_perks, is_special)
-            VALUES 
-                (1, 'Freshman', '🥉', 0, 99, '{}', 0),
-                (2, 'Sophomore', '🥈', 100, 249, '{}', 0),
-                (3, 'Junior', '🥇', 250, 499, '{}', 0),
-                (4, 'Senior', '🏆', 500, 999, '{"daily_confessions": 8}', 0),
-                (5, 'Graduate', '🎓', 1000, 1999, '{"daily_confessions": 10, "priority_review": true}', 0),
-                (6, 'Master', '👑', 2000, 4999, '{"daily_confessions": 15, "priority_review": true, "comment_highlight": true}', 1),
-                (7, 'Legend', '🌟', 5000, NULL, '{"all_perks": true, "unlimited_daily": true, "legend_badge": true}', 1)
-            ON CONFLICT (rank_id) DO NOTHING
-        ''')
+        except (sqlite3.OperationalError, psycopg2.errors.UndefinedColumn) as e:
+            if "no such column: min_points" in str(e):
+                logger.warning("Warning: rank_definitions table exists but has old schema. Run migrations to fix.")
+                # Skip inserting for now - migrations will handle this
+            else:
+                raise e
+        
         # Analytics tables
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS user_activity_log (
             log_id SERIAL PRIMARY KEY,
-            user_id INTEGER NOT NULL,
+            user_id BIGINT NOT NULL,
             activity_type TEXT NOT NULL,
             details TEXT,
             timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
