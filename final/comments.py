@@ -310,7 +310,6 @@ def get_comment_sequential_number(comment_id):
             cursor.execute(f"""
                 SELECT COUNT(*) FROM comments 
                 WHERE parent_comment_id = {placeholder} AND comment_id <= {placeholder}
-                ORDER BY timestamp ASC
             """, (parent_comment_id, comment_id))
             result = cursor.fetchone()
             return result[0] if result else 1
@@ -319,7 +318,6 @@ def get_comment_sequential_number(comment_id):
             cursor.execute(f"""
                 SELECT COUNT(*) FROM comments 
                 WHERE post_id = {placeholder} AND parent_comment_id IS NULL AND comment_id <= {placeholder}
-                ORDER BY timestamp ASC
             """, (post_id, comment_id))
             result = cursor.fetchone()
             return result[0] if result else 1
