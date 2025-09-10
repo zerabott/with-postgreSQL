@@ -6054,7 +6054,7 @@ async def admin_db_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         
         # Format statistics message
-        message_text = "🗄️ *Database Statistics*\n\n
+        message_text = "🗄️ *Database Statistics*\n\n"
         
         # Table counts section
         message_text += "📊 *Table Records*\n"
@@ -7384,5 +7384,6 @@ def main():
 
 if __name__ == '__main__':
     main()
+
 
 
