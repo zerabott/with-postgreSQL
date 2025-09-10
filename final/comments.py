@@ -3,7 +3,10 @@ from config import COMMENTS_PER_PAGE, CHANNEL_ID, BOT_USERNAME
 from utils import escape_markdown_text
 from db import get_comment_count
 from submission import is_media_post, get_media_info
-from db_connection import get_db_connection
+from db_connection import get_db_connection, execute_query, adapt_query
+import logging
+
+logger = logging.getLogger(__name__)
 
 def save_comment(post_id, content, user_id, parent_comment_id=None):
     """Save a comment to the database"""
@@ -12,56 +15,47 @@ def save_comment(post_id, content, user_id, parent_comment_id=None):
         with db_conn.get_connection() as conn:
             cursor = conn.cursor()
             
-            # First, validate that the post exists and is approved
-            placeholder = db_conn.get_placeholder()
-            cursor.execute(
-                f"SELECT post_id, approved FROM posts WHERE post_id = {placeholder}",
-                (post_id,)
-            )
-            post_data = cursor.fetchone()
+            # First, validate that the post exists
+            post_check_query = adapt_query("SELECT post_id FROM posts WHERE post_id = ? AND approved = 1")
+            cursor.execute(post_check_query, (post_id,))
+            post_exists = cursor.fetchone()
             
-            if not post_data:
+            if not post_exists:
+                logger.error(f"Cannot save comment: Post {post_id} does not exist or is not approved")
                 return None, f"Post {post_id} not found or not approved"
             
-            if post_data[1] != 1:  # not approved
-                return None, f"Post {post_id} not found or not approved"
-            
-            # If parent_comment_id is provided, validate that the parent comment exists and belongs to this post
+            # Validate parent comment if provided
             if parent_comment_id:
-                cursor.execute(
-                    f"SELECT post_id FROM comments WHERE comment_id = {placeholder}",
-                    (parent_comment_id,)
-                )
-                parent_data = cursor.fetchone()
+                parent_check_query = adapt_query("SELECT comment_id FROM comments WHERE comment_id = ?")
+                cursor.execute(parent_check_query, (parent_comment_id,))
+                parent_exists = cursor.fetchone()
                 
-                if not parent_data:
+                if not parent_exists:
+                    logger.error(f"Cannot save comment: Parent comment {parent_comment_id} does not exist")
                     return None, f"Parent comment {parent_comment_id} not found"
-                
-                if parent_data[0] != post_id:
-                    return None, f"Parent comment {parent_comment_id} does not belong to post {post_id}"
             
-            # Now save the comment
+            # Insert comment using proper database abstraction
             if db_conn.use_postgresql:
-                cursor.execute(
-                    f"INSERT INTO comments (post_id, content, user_id, parent_comment_id) VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}) RETURNING comment_id",
-                    (post_id, content, user_id, parent_comment_id)
-                )
+                # PostgreSQL: use RETURNING clause to get the ID
+                insert_query = adapt_query("INSERT INTO comments (post_id, content, user_id, parent_comment_id) VALUES (?, ?, ?, ?) RETURNING comment_id")
+                cursor.execute(insert_query, (post_id, content, user_id, parent_comment_id))
                 comment_id = cursor.fetchone()[0]
             else:
-                cursor.execute(
-                    f"INSERT INTO comments (post_id, content, user_id, parent_comment_id) VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder})",
-                    (post_id, content, user_id, parent_comment_id)
-                )
+                # SQLite: use lastrowid
+                insert_query = adapt_query("INSERT INTO comments (post_id, content, user_id, parent_comment_id) VALUES (?, ?, ?, ?)")
+                cursor.execute(insert_query, (post_id, content, user_id, parent_comment_id))
                 comment_id = cursor.lastrowid
-            
+
             # Update user stats
-            cursor.execute(
-                f"UPDATE users SET comments_posted = comments_posted + 1 WHERE user_id = {placeholder}",
-                (user_id,)
-            )
-            conn.commit()
+            update_query = adapt_query("UPDATE users SET comments_posted = comments_posted + 1 WHERE user_id = ?")
+            cursor.execute(update_query, (user_id,))
+            
+            if db_conn.use_postgresql:
+                conn.commit()
+            
             return comment_id, None
     except Exception as e:
+        logger.error(f"Error saving comment: {e}")
         return None, f"Database error: {str(e)}"
 
 def get_post_with_channel_info(post_id):
@@ -77,94 +71,89 @@ def get_post_with_channel_info(post_id):
         return cursor.fetchone()
 
 def get_comments_paginated(post_id, page=1):
-    """Get comments for a post with pagination (parent comments with nested replies)"""
+    """Get comments for a post in flat structure like Telegram native replies"""
     offset = (page - 1) * COMMENTS_PER_PAGE
-    
-    db_conn = get_db_connection()
-    with db_conn.get_connection() as conn:
-        cursor = conn.cursor()
-        placeholder = db_conn.get_placeholder()
+
+    try:
+        # Get total count using the existing function
+        total_comments = get_comment_count(post_id)
+
+        # Get paginated comments in flat structure
+        db_conn = get_db_connection()
         
-        # Get total count of parent comments
-        cursor.execute(
-            f"SELECT COUNT(*) FROM comments WHERE post_id = {placeholder} AND parent_comment_id IS NULL",
-            (post_id,)
-        )
-        total_comments = cursor.fetchone()[0]
-        
-        # Get paginated parent comments with row numbers for sequential numbering
-        cursor.execute(f'''
-            SELECT comment_id, content, timestamp, likes, dislikes, flagged,
-                   ROW_NUMBER() OVER (ORDER BY timestamp ASC) as comment_number
-            FROM comments 
-            WHERE post_id = {placeholder} AND parent_comment_id IS NULL 
-            ORDER BY timestamp ASC
-            LIMIT {placeholder} OFFSET {placeholder}
-        ''', (post_id, COMMENTS_PER_PAGE, offset))
-        
-        comments = cursor.fetchall()
-        
-        # For each comment, get its replies and sub-replies with proper nesting
-        comments_with_replies = []
-        for comment in comments:
-            comment_id = comment[0]
-            
-            # Get first-level replies (replies to main comment)
-            cursor.execute(f'''
-                SELECT comment_id, content, timestamp, likes, dislikes,
-                       ROW_NUMBER() OVER (ORDER BY timestamp ASC) as reply_number
+        if db_conn.use_postgresql:
+            # PostgreSQL version with ROW_NUMBER()
+            query = f"""
+                SELECT comment_id, content, timestamp, likes, dislikes, flagged, parent_comment_id,
+                       ROW_NUMBER() OVER (ORDER BY timestamp ASC) as comment_number
                 FROM comments 
-                WHERE parent_comment_id = {placeholder} 
+                WHERE post_id = {db_conn.get_placeholder()}
                 ORDER BY timestamp ASC
-                LIMIT 3
-            ''', (comment_id,))
-            first_level_replies = cursor.fetchall()
-            
-            # For each first-level reply, get its sub-replies (second-level replies)
-            nested_replies = []
-            for reply in first_level_replies:
-                reply_id = reply[0]
-                
-                # Get second-level replies (replies to first-level replies)
-                cursor.execute(f'''
-                    SELECT comment_id, content, timestamp, likes, dislikes,
-                           ROW_NUMBER() OVER (ORDER BY timestamp ASC) as sub_reply_number
-                    FROM comments 
-                    WHERE parent_comment_id = {placeholder} 
-                    ORDER BY timestamp ASC
-                    LIMIT 2
-                ''', (reply_id,))
-                sub_replies = cursor.fetchall()
-                
-                # Count total sub-replies for this first-level reply
-                cursor.execute(
-                    f"SELECT COUNT(*) FROM comments WHERE parent_comment_id = {placeholder}",
-                    (reply_id,)
-                )
-                total_sub_replies = cursor.fetchone()[0]
-                
-                nested_replies.append({
-                    'reply': reply,
-                    'sub_replies': sub_replies,
-                    'total_sub_replies': total_sub_replies
-                })
-            
-            # Count total first-level replies
-            cursor.execute(
-                f"SELECT COUNT(*) FROM comments WHERE parent_comment_id = {placeholder}",
-                (comment_id,)
-            )
-            total_replies = cursor.fetchone()[0]
-            
-            comments_with_replies.append({
-                'comment': comment,
-                'replies': nested_replies,
-                'total_replies': total_replies
-            })
+                LIMIT {db_conn.get_placeholder()} OFFSET {db_conn.get_placeholder()}
+            """
+        else:
+            # SQLite version with ROW_NUMBER()
+            query = f"""
+                SELECT comment_id, content, timestamp, likes, dislikes, flagged, parent_comment_id,
+                       ROW_NUMBER() OVER (ORDER BY timestamp ASC) as comment_number
+                FROM comments 
+                WHERE post_id = {db_conn.get_placeholder()}
+                ORDER BY timestamp ASC
+                LIMIT {db_conn.get_placeholder()} OFFSET {db_conn.get_placeholder()}
+            """
         
-        total_pages = (total_comments + COMMENTS_PER_PAGE - 1) // COMMENTS_PER_PAGE
-        
-        return comments_with_replies, page, total_pages, total_comments
+        with db_conn.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, (post_id, COMMENTS_PER_PAGE, offset))
+            comments = cursor.fetchall()
+
+            # Transform into simplified flat structure
+            comments_flat = []
+            for comment in comments or []:
+                comment_id = comment[0]
+                content = comment[1]
+                timestamp = comment[2]
+                likes = comment[3]
+                dislikes = comment[4]
+                flagged = comment[5]
+                parent_comment_id = comment[6]
+                comment_number = comment[7]
+                
+                comment_data = {
+                    'comment_id': comment_id,
+                    'content': content,
+                    'timestamp': timestamp,
+                    'likes': likes,
+                    'dislikes': dislikes,
+                    'flagged': flagged,
+                    'parent_comment_id': parent_comment_id,
+                    'comment_number': comment_number,
+                    'is_reply': parent_comment_id is not None
+                }
+                
+                # If this is a reply, get the original comment info
+                if parent_comment_id:
+                    placeholder = db_conn.get_placeholder()
+                    cursor.execute(
+                        f"SELECT comment_id, content, timestamp FROM comments WHERE comment_id = {placeholder}",
+                        (parent_comment_id,)
+                    )
+                    original = cursor.fetchone()
+                    if original:
+                        comment_data['original_comment'] = {
+                            'comment_id': original[0],
+                            'content': original[1],
+                            'timestamp': original[2]
+                        }
+                
+                comments_flat.append(comment_data)
+
+            total_pages = (total_comments + COMMENTS_PER_PAGE - 1) // COMMENTS_PER_PAGE
+
+            return comments_flat, page, total_pages, total_comments
+    except Exception as e:
+        print(f"Error getting paginated comments: {e}")
+        return [], 1, 1, 0
 
 def get_comment_by_id(comment_id):
     """Get a specific comment by ID"""
@@ -394,14 +383,55 @@ def get_comment_reply_level(comment_id):
 
 def get_comment_type_prefix(comment_id):
     """Get the appropriate prefix for a comment based on its reply level"""
-    reply_level = get_comment_reply_level(comment_id)
+    # In flat structure, all comments are just "comment" regardless of level
+    return "comment"
+
+# Format replies to look like Telegram's native reply feature
+def format_reply(parent_text, child_text, parent_author="Anonymous"):
+    """Format reply messages to look like Telegram's native reply feature with blockquote"""
+    # Truncate parent text if too long for better display
+    if len(parent_text) > 150:
+        parent_text = parent_text[:150] + "..."
     
-    if reply_level == 0:
-        return "comment"
-    elif reply_level == 1:
-        return "reply"
-    else:  # reply_level == 2
-        return "sub-reply"
+    # Use Telegram's native blockquote styling
+    return f"<blockquote expandable>{parent_text}</blockquote>\n\n{child_text}"
+
+def find_comment_page(comment_id):
+    """Find which page a comment is on for navigation"""
+    try:
+        # Get comment info
+        db_conn = get_db_connection()
+        with db_conn.get_connection() as conn:
+            cursor = conn.cursor()
+            placeholder = db_conn.get_placeholder()
+            cursor.execute(
+                f"SELECT post_id, timestamp FROM comments WHERE comment_id = {placeholder}",
+                (comment_id,)
+            )
+            comment_info = cursor.fetchone()
+            
+            if not comment_info:
+                return None
+                
+            post_id, timestamp = comment_info
+            
+            # Count comments before this one (chronological order)
+            cursor.execute(f"""
+                SELECT COUNT(*) FROM comments 
+                WHERE post_id = {placeholder} AND timestamp < {placeholder}
+                ORDER BY timestamp ASC
+            """, (post_id, timestamp))
+            comments_before = cursor.fetchone()[0]
+            page = (comments_before // COMMENTS_PER_PAGE) + 1
+            
+            return {
+                'page': page,
+                'post_id': post_id,
+                'comment_id': comment_id
+            }
+    except Exception as e:
+        print(f"Error finding comment page: {e}")
+        return None
 
 async def update_channel_message_comment_count(context, post_id):
     """Update the comment count on the channel message"""
