@@ -1,7 +1,6 @@
 import sqlite3
 import datetime
 import psycopg2
-
 from config import DB_PATH
 from db_connection import get_db_connection
 import logging
@@ -203,10 +202,10 @@ def init_db():
                 total_achievements INTEGER DEFAULT 0,
                 highest_rank_achieved INTEGER DEFAULT 1,
                 consecutive_days INTEGER DEFAULT 0,
-                last_login_date TEXT,
-                last_activity TEXT DEFAULT CURRENT_TIMESTAMP,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                last_login_date TIMESTAMP,
+                last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY(user_id) REFERENCES users(user_id)
             )''')
             
@@ -219,7 +218,7 @@ def init_db():
                 reference_id INTEGER,
                 reference_type TEXT,
                 description TEXT,
-                timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY(user_id) REFERENCES users(user_id)
             )''')
             
@@ -233,7 +232,7 @@ def init_db():
                 points_awarded INTEGER DEFAULT 0,
                 is_special INTEGER DEFAULT 0,
                 metadata TEXT,
-                achieved_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                achieved_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY(user_id) REFERENCES users(user_id)
             )''')
         else: # For SQLite
@@ -309,13 +308,16 @@ def init_db():
             ''')
             conn.commit()
             
-        except (sqlite3.OperationalError, psycopg2.errors.UndefinedColumn) as e:
+        except (sqlite3.OperationalError, psycopg2.errors.UndefinedColumn, psycopg2.errors.SyntaxError) as e:
             if "no such column: min_points" in str(e):
                 logger.warning("Warning: rank_definitions table exists but has old schema. Run migrations to fix.")
             else:
-                raise e
+                logger.error(f"Failed to insert rank definitions, rolling back: {e}")
+                conn.rollback() # Rollback to clear aborted transaction state
+                
         except Exception as e:
-            logger.error(f"Failed to insert rank definitions: {e}")
+            logger.error(f"Failed to insert rank definitions, rolling back: {e}")
+            conn.rollback()
         
         # Analytics tables
         if use_pg:
@@ -325,7 +327,7 @@ def init_db():
                 user_id BIGINT NOT NULL,
                 activity_type TEXT NOT NULL,
                 details TEXT,
-                timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY(user_id) REFERENCES users(user_id)
             )''')
         else:
@@ -353,75 +355,117 @@ def init_db():
         
         # Add missing columns to posts table for analytics
         try:
-            cursor.execute('ALTER TABLE posts ADD COLUMN status TEXT DEFAULT "pending"')
+            cursor.execute('ALTER TABLE posts ADD COLUMN status TEXT DEFAULT \'pending\'')
         except (sqlite3.OperationalError, psycopg2.errors.DuplicateColumn):
             pass  # Column already exists
+        except Exception as e:
+            logger.error(f"Failed to add 'status' column, rolling back: {e}")
+            conn.rollback()
         
         try:
             cursor.execute('ALTER TABLE posts ADD COLUMN sentiment_score REAL DEFAULT 0.0')
         except (sqlite3.OperationalError, psycopg2.errors.DuplicateColumn):
             pass  # Column already exists
-        
+        except Exception as e:
+            logger.error(f"Failed to add 'sentiment_score' column, rolling back: {e}")
+            conn.rollback()
+
         try:
             cursor.execute('ALTER TABLE posts ADD COLUMN profanity_detected INTEGER DEFAULT 0')
         except (sqlite3.OperationalError, psycopg2.errors.DuplicateColumn):
             pass  # Column already exists
+        except Exception as e:
+            logger.error(f"Failed to add 'profanity_detected' column, rolling back: {e}")
+            conn.rollback()
         
         try:
             cursor.execute('ALTER TABLE posts ADD COLUMN spam_score REAL DEFAULT 0.0')
         except (sqlite3.OperationalError, psycopg2.errors.DuplicateColumn):
             pass  # Column already exists
+        except Exception as e:
+            logger.error(f"Failed to add 'spam_score' column, rolling back: {e}")
+            conn.rollback()
         
         # Media support columns
         try:
             cursor.execute('ALTER TABLE posts ADD COLUMN media_type TEXT')
         except (sqlite3.OperationalError, psycopg2.errors.DuplicateColumn):
             pass  # Column already exists
-        
+        except Exception as e:
+            logger.error(f"Failed to add 'media_type' column, rolling back: {e}")
+            conn.rollback()
+
         try:
             cursor.execute('ALTER TABLE posts ADD COLUMN media_file_id TEXT')
         except (sqlite3.OperationalError, psycopg2.errors.DuplicateColumn):
             pass  # Column already exists
-        
+        except Exception as e:
+            logger.error(f"Failed to add 'media_file_id' column, rolling back: {e}")
+            conn.rollback()
+
         try:
             cursor.execute('ALTER TABLE posts ADD COLUMN media_file_unique_id TEXT')
         except (sqlite3.OperationalError, psycopg2.errors.DuplicateColumn):
             pass  # Column already exists
-        
+        except Exception as e:
+            logger.error(f"Failed to add 'media_file_unique_id' column, rolling back: {e}")
+            conn.rollback()
+
         try:
             cursor.execute('ALTER TABLE posts ADD COLUMN media_caption TEXT')
         except (sqlite3.OperationalError, psycopg2.errors.DuplicateColumn):
             pass  # Column already exists
-        
+        except Exception as e:
+            logger.error(f"Failed to add 'media_caption' column, rolling back: {e}")
+            conn.rollback()
+
         try:
             cursor.execute('ALTER TABLE posts ADD COLUMN media_file_size INTEGER')
         except (sqlite3.OperationalError, psycopg2.errors.DuplicateColumn):
             pass  # Column already exists
+        except Exception as e:
+            logger.error(f"Failed to add 'media_file_size' column, rolling back: {e}")
+            conn.rollback()
         
         try:
             cursor.execute('ALTER TABLE posts ADD COLUMN media_mime_type TEXT')
         except (sqlite3.OperationalError, psycopg2.errors.DuplicateColumn):
             pass  # Column already exists
+        except Exception as e:
+            logger.error(f"Failed to add 'media_mime_type' column, rolling back: {e}")
+            conn.rollback()
         
         try:
             cursor.execute('ALTER TABLE posts ADD COLUMN media_duration INTEGER')
         except (sqlite3.OperationalError, psycopg2.errors.DuplicateColumn):
             pass  # Column already exists
+        except Exception as e:
+            logger.error(f"Failed to add 'media_duration' column, rolling back: {e}")
+            conn.rollback()
         
         try:
             cursor.execute('ALTER TABLE posts ADD COLUMN media_width INTEGER')
         except (sqlite3.OperationalError, psycopg2.errors.DuplicateColumn):
             pass  # Column already exists
-        
+        except Exception as e:
+            logger.error(f"Failed to add 'media_width' column, rolling back: {e}")
+            conn.rollback()
+
         try:
             cursor.execute('ALTER TABLE posts ADD COLUMN media_height INTEGER')
         except (sqlite3.OperationalError, psycopg2.errors.DuplicateColumn):
             pass  # Column already exists
+        except Exception as e:
+            logger.error(f"Failed to add 'media_height' column, rolling back: {e}")
+            conn.rollback()
         
         try:
             cursor.execute('ALTER TABLE posts ADD COLUMN media_thumbnail_file_id TEXT')
         except (sqlite3.OperationalError, psycopg2.errors.DuplicateColumn):
             pass  # Column already exists
+        except Exception as e:
+            logger.error(f"Failed to add 'media_thumbnail_file_id' column, rolling back: {e}")
+            conn.rollback()
         
         # Update existing posts to have proper status
         cursor.execute('''
