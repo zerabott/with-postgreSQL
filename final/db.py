@@ -1,5 +1,7 @@
 import sqlite3
 import datetime
+import psycopg2
+
 from config import DB_PATH
 from db_connection import get_db_connection
 import logging
@@ -189,51 +191,97 @@ def init_db():
             )''')
 
         # Ranking system tables
-        cursor.execute('''
-        CREATE TABLE IF NOT EXISTS user_rankings (
-            user_id BIGINT PRIMARY KEY,
-            total_points INTEGER DEFAULT 0,
-            weekly_points INTEGER DEFAULT 0,
-            monthly_points INTEGER DEFAULT 0,
-            current_rank_id INTEGER DEFAULT 1,
-            rank_progress REAL DEFAULT 0.0,
-            total_achievements INTEGER DEFAULT 0,
-            highest_rank_achieved INTEGER DEFAULT 1,
-            consecutive_days INTEGER DEFAULT 0,
-            last_login_date TEXT,
-            last_activity TEXT DEFAULT CURRENT_TIMESTAMP,
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-            updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(user_id) REFERENCES users(user_id)
-        )''')
-        
-        cursor.execute('''
-        CREATE TABLE IF NOT EXISTS point_transactions (
-            transaction_id SERIAL PRIMARY KEY,
-            user_id BIGINT NOT NULL,
-            points_change INTEGER NOT NULL,
-            transaction_type TEXT NOT NULL,
-            reference_id INTEGER,
-            reference_type TEXT,
-            description TEXT,
-            timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(user_id) REFERENCES users(user_id)
-        )''')
-        
-        cursor.execute('''
-        CREATE TABLE IF NOT EXISTS user_achievements (
-            achievement_id SERIAL PRIMARY KEY,
-            user_id BIGINT NOT NULL,
-            achievement_type TEXT NOT NULL,
-            achievement_name TEXT NOT NULL,
-            achievement_description TEXT,
-            points_awarded INTEGER DEFAULT 0,
-            is_special INTEGER DEFAULT 0,
-            metadata TEXT,
-            achieved_at TEXT DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(user_id) REFERENCES users(user_id)
-        )''')
-        
+        if use_pg:
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS user_rankings (
+                user_id BIGINT PRIMARY KEY,
+                total_points INTEGER DEFAULT 0,
+                weekly_points INTEGER DEFAULT 0,
+                monthly_points INTEGER DEFAULT 0,
+                current_rank_id INTEGER DEFAULT 1,
+                rank_progress REAL DEFAULT 0.0,
+                total_achievements INTEGER DEFAULT 0,
+                highest_rank_achieved INTEGER DEFAULT 1,
+                consecutive_days INTEGER DEFAULT 0,
+                last_login_date TEXT,
+                last_activity TEXT DEFAULT CURRENT_TIMESTAMP,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(user_id) REFERENCES users(user_id)
+            )''')
+            
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS point_transactions (
+                transaction_id SERIAL PRIMARY KEY,
+                user_id BIGINT NOT NULL,
+                points_change INTEGER NOT NULL,
+                transaction_type TEXT NOT NULL,
+                reference_id INTEGER,
+                reference_type TEXT,
+                description TEXT,
+                timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(user_id) REFERENCES users(user_id)
+            )''')
+            
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS user_achievements (
+                achievement_id SERIAL PRIMARY KEY,
+                user_id BIGINT NOT NULL,
+                achievement_type TEXT NOT NULL,
+                achievement_name TEXT NOT NULL,
+                achievement_description TEXT,
+                points_awarded INTEGER DEFAULT 0,
+                is_special INTEGER DEFAULT 0,
+                metadata TEXT,
+                achieved_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(user_id) REFERENCES users(user_id)
+            )''')
+        else: # For SQLite
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS user_rankings (
+                user_id INTEGER PRIMARY KEY,
+                total_points INTEGER DEFAULT 0,
+                weekly_points INTEGER DEFAULT 0,
+                monthly_points INTEGER DEFAULT 0,
+                current_rank_id INTEGER DEFAULT 1,
+                rank_progress REAL DEFAULT 0.0,
+                total_achievements INTEGER DEFAULT 0,
+                highest_rank_achieved INTEGER DEFAULT 1,
+                consecutive_days INTEGER DEFAULT 0,
+                last_login_date TEXT,
+                last_activity TEXT DEFAULT CURRENT_TIMESTAMP,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(user_id) REFERENCES users(user_id)
+            )''')
+            
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS point_transactions (
+                transaction_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                points_change INTEGER NOT NULL,
+                transaction_type TEXT NOT NULL,
+                reference_id INTEGER,
+                reference_type TEXT,
+                description TEXT,
+                timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(user_id) REFERENCES users(user_id)
+            )''')
+            
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS user_achievements (
+                achievement_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                achievement_type TEXT NOT NULL,
+                achievement_name TEXT NOT NULL,
+                achievement_description TEXT,
+                points_awarded INTEGER DEFAULT 0,
+                is_special INTEGER DEFAULT 0,
+                metadata TEXT,
+                achieved_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(user_id) REFERENCES users(user_id)
+            )''')
+
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS rank_definitions (
             rank_id SERIAL PRIMARY KEY,
@@ -245,12 +293,8 @@ def init_db():
             is_special INTEGER DEFAULT 0
         )''')
         
-        # Check if rank_definitions table has the correct columns before inserting
+        # Insert default ranks, handling potential schema mismatch
         try:
-            # Test if the table has the correct schema by attempting to select from min_points
-            cursor.execute("SELECT min_points FROM rank_definitions LIMIT 1")
-            
-            # If we get here, the table has the correct schema, so insert default rank definitions
             cursor.execute('''
                 INSERT INTO rank_definitions (rank_id, rank_name, rank_emoji, min_points, max_points, special_perks, is_special)
                 VALUES 
@@ -268,20 +312,32 @@ def init_db():
         except (sqlite3.OperationalError, psycopg2.errors.UndefinedColumn) as e:
             if "no such column: min_points" in str(e):
                 logger.warning("Warning: rank_definitions table exists but has old schema. Run migrations to fix.")
-                # Skip inserting for now - migrations will handle this
             else:
                 raise e
+        except Exception as e:
+            logger.error(f"Failed to insert rank definitions: {e}")
         
         # Analytics tables
-        cursor.execute('''
-        CREATE TABLE IF NOT EXISTS user_activity_log (
-            log_id SERIAL PRIMARY KEY,
-            user_id BIGINT NOT NULL,
-            activity_type TEXT NOT NULL,
-            details TEXT,
-            timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(user_id) REFERENCES users(user_id)
-        )''')
+        if use_pg:
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS user_activity_log (
+                log_id SERIAL PRIMARY KEY,
+                user_id BIGINT NOT NULL,
+                activity_type TEXT NOT NULL,
+                details TEXT,
+                timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(user_id) REFERENCES users(user_id)
+            )''')
+        else:
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS user_activity_log (
+                log_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                activity_type TEXT NOT NULL,
+                details TEXT,
+                timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(user_id) REFERENCES users(user_id)
+            )''')
         
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS daily_stats (
@@ -298,73 +354,73 @@ def init_db():
         # Add missing columns to posts table for analytics
         try:
             cursor.execute('ALTER TABLE posts ADD COLUMN status TEXT DEFAULT "pending"')
-        except sqlite3.OperationalError:
+        except (sqlite3.OperationalError, psycopg2.errors.DuplicateColumn):
             pass  # Column already exists
         
         try:
             cursor.execute('ALTER TABLE posts ADD COLUMN sentiment_score REAL DEFAULT 0.0')
-        except sqlite3.OperationalError:
+        except (sqlite3.OperationalError, psycopg2.errors.DuplicateColumn):
             pass  # Column already exists
         
         try:
             cursor.execute('ALTER TABLE posts ADD COLUMN profanity_detected INTEGER DEFAULT 0')
-        except sqlite3.OperationalError:
+        except (sqlite3.OperationalError, psycopg2.errors.DuplicateColumn):
             pass  # Column already exists
         
         try:
             cursor.execute('ALTER TABLE posts ADD COLUMN spam_score REAL DEFAULT 0.0')
-        except sqlite3.OperationalError:
+        except (sqlite3.OperationalError, psycopg2.errors.DuplicateColumn):
             pass  # Column already exists
         
         # Media support columns
         try:
             cursor.execute('ALTER TABLE posts ADD COLUMN media_type TEXT')
-        except sqlite3.OperationalError:
+        except (sqlite3.OperationalError, psycopg2.errors.DuplicateColumn):
             pass  # Column already exists
         
         try:
             cursor.execute('ALTER TABLE posts ADD COLUMN media_file_id TEXT')
-        except sqlite3.OperationalError:
+        except (sqlite3.OperationalError, psycopg2.errors.DuplicateColumn):
             pass  # Column already exists
         
         try:
             cursor.execute('ALTER TABLE posts ADD COLUMN media_file_unique_id TEXT')
-        except sqlite3.OperationalError:
+        except (sqlite3.OperationalError, psycopg2.errors.DuplicateColumn):
             pass  # Column already exists
         
         try:
             cursor.execute('ALTER TABLE posts ADD COLUMN media_caption TEXT')
-        except sqlite3.OperationalError:
+        except (sqlite3.OperationalError, psycopg2.errors.DuplicateColumn):
             pass  # Column already exists
         
         try:
             cursor.execute('ALTER TABLE posts ADD COLUMN media_file_size INTEGER')
-        except sqlite3.OperationalError:
+        except (sqlite3.OperationalError, psycopg2.errors.DuplicateColumn):
             pass  # Column already exists
         
         try:
             cursor.execute('ALTER TABLE posts ADD COLUMN media_mime_type TEXT')
-        except sqlite3.OperationalError:
+        except (sqlite3.OperationalError, psycopg2.errors.DuplicateColumn):
             pass  # Column already exists
         
         try:
             cursor.execute('ALTER TABLE posts ADD COLUMN media_duration INTEGER')
-        except sqlite3.OperationalError:
+        except (sqlite3.OperationalError, psycopg2.errors.DuplicateColumn):
             pass  # Column already exists
         
         try:
             cursor.execute('ALTER TABLE posts ADD COLUMN media_width INTEGER')
-        except sqlite3.OperationalError:
+        except (sqlite3.OperationalError, psycopg2.errors.DuplicateColumn):
             pass  # Column already exists
         
         try:
             cursor.execute('ALTER TABLE posts ADD COLUMN media_height INTEGER')
-        except sqlite3.OperationalError:
+        except (sqlite3.OperationalError, psycopg2.errors.DuplicateColumn):
             pass  # Column already exists
         
         try:
             cursor.execute('ALTER TABLE posts ADD COLUMN media_thumbnail_file_id TEXT')
-        except sqlite3.OperationalError:
+        except (sqlite3.OperationalError, psycopg2.errors.DuplicateColumn):
             pass  # Column already exists
         
         # Update existing posts to have proper status
