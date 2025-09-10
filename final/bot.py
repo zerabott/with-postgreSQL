@@ -6661,10 +6661,10 @@ async def admin_table_info_callback(update: Update, context: ContextTypes.DEFAUL
 
                 
                 # Get column count
-                    try:
-                        cursor.execute(f"PRAGMA table_info({table_name})")
-                        columns = cursor.fetchall()
-                        column_count = len(columns)
+                try:
+                    cursor.execute(f"PRAGMA table_info({table_name})")
+                    columns = cursor.fetchall()
+                    column_count = len(columns)
                         
                     # Show some key columns
                     key_columns = []
@@ -7384,6 +7384,7 @@ def main():
 
 if __name__ == '__main__':
     main()
+
 
 
 
