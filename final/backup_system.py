@@ -46,26 +46,26 @@ class BackupManager:
             logger.error(f"Failed to calculate checksum for {file_path}: {e}")
             return ""
     
-    def get_record_count(self, db_path: str) -> int:
+   def get_record_count(self, db_path: str) -> int:
         """Get total record count from database"""
         try:
             conn = get_db()
-                cursor = conn.cursor()
-                
-                # Count records from main tables
-                tables = ['users', 'posts', 'comments', 'reactions', 'admin_messages']
-                total_records = 0
-                
-                for table in tables:
-                    try:
-                        cursor.execute(f"SELECT COUNT(*) FROM {table}")
-                        count = cursor.fetchone()[0]
-                        total_records += count
-                    except sqlite3.OperationalError:
-                        # Table might not exist
-                        pass
-                
-                return total_records
+            cursor = conn.cursor()
+            
+            # Count records from main tables
+            tables = ['users', 'posts', 'comments', 'reactions', 'admin_messages']
+            total_records = 0
+            
+            for table in tables:
+                try:
+                    cursor.execute(f"SELECT COUNT(*) FROM {table}")
+                    count = cursor.fetchone()[0]
+                    total_records += count
+                except sqlite3.OperationalError:
+                    # Table might not exist
+                    pass
+            
+            return total_records
         except Exception as e:
             logger.error(f"Failed to count records: {e}")
             return 0
@@ -359,3 +359,4 @@ def get_backup_status() -> dict:
         'is_running': backup_manager.running,
         **backup_manager.get_backup_stats()
     }
+
