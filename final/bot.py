@@ -6617,33 +6617,33 @@ async def admin_table_info_callback(update: Update, context: ContextTypes.DEFAUL
     """Handle table info button callback"""
     query = update.callback_query
     await query.answer()
-    
+
     user_id = update.effective_user.id
     if user_id not in ADMIN_IDS:
         await query.answer("❗ Not authorized")
         return
-    
+
     try:
         db_conn = get_db_connection()
         with db_conn.get_connection() as conn:
             cursor = conn.cursor()
-            
+
             # Get table names (PostgreSQL style)
             cursor.execute("""
-                SELECT table_name 
+                SELECT table_name
                 FROM information_schema.tables
                 WHERE table_schema = 'public'
                 ORDER BY table_name
             """)
             tables = cursor.fetchall()
-        
+
         table_text = "📋 *Database Table Information*\n\n"
-        
+
         if not tables:
             table_text += "❓ No tables found in database\n"
         else:
             table_text += f"📊 **Total Tables:** `{len(tables)}`\n\n"
-            
+
             for (table_name,) in tables:
                 # Get row count for each table
                 try:
@@ -6652,20 +6652,12 @@ async def admin_table_info_callback(update: Update, context: ContextTypes.DEFAUL
                 except Exception:
                     row_count = "Error"
                 
-                table_text += f"• `{table_name}` → Rows: `{row_count}`\n"
-        
-        await query.message.reply_text(table_text, parse_mode="Markdown")
-    
-    except Exception as e:
-        await query.message.reply_text(f"⚠️ Error fetching table info: {e}")
-
-                
                 # Get column count
                 try:
                     cursor.execute(f"PRAGMA table_info({table_name})")
                     columns = cursor.fetchall()
                     column_count = len(columns)
-                        
+                    
                     # Show some key columns
                     key_columns = []
                     for col in columns[:3]:  # Show first 3 columns
@@ -6688,7 +6680,7 @@ async def admin_table_info_callback(update: Update, context: ContextTypes.DEFAUL
                 if isinstance(column_count, int) and column_count <= 10:
                     table_text += f"• Schema: {escape_markdown_text(columns_info[:100])}...\n" if len(columns_info) > 100 else f"• Schema: {escape_markdown_text(columns_info)}\n"
                 table_text += "\n"
-        
+
         # Get database file info
         try:
             import os
@@ -6698,8 +6690,7 @@ async def admin_table_info_callback(update: Update, context: ContextTypes.DEFAUL
             table_text += f"• Path: `{escape_markdown_text(DB_PATH)}`\n"
         except Exception as e:
             table_text += f"💾 **Database File**\n• Error: {escape_markdown_text(str(e))}\n"
-        
-        
+
         keyboard = [
             [
                 InlineKeyboardButton("🔄 Refresh", callback_data="admin_table_info"),
@@ -6711,13 +6702,13 @@ async def admin_table_info_callback(update: Update, context: ContextTypes.DEFAUL
             ]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        
+
         await query.edit_message_text(
             table_text,
             reply_markup=reply_markup,
             parse_mode="MarkdownV2"
         )
-    
+
     except Exception as e:
         logger.error(f"Error in admin_table_info_callback: {e}")
         await query.edit_message_text(
@@ -7384,6 +7375,7 @@ def main():
 
 if __name__ == '__main__':
     main()
+
 
 
 
