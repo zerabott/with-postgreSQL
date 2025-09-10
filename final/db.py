@@ -251,7 +251,8 @@ def init_db():
             cursor.execute("SELECT min_points FROM rank_definitions LIMIT 1")
             
             # If we get here, the table has the correct schema, so insert default rank definitions
-           cursor.execute('''
+            
+        cursor.execute('''
             INSERT INTO rank_definitions (rank_id, rank_name, rank_emoji, min_points, max_points, special_perks, is_special)
             VALUES 
                 (1, 'Freshman', '🥉', 0, 99, '{}', 0),
