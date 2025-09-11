@@ -305,7 +305,7 @@ async def send_notification(context: ContextTypes.DEFAULT_TYPE, user_id: int,
         return False
 
 async def notify_comment_on_post(context: ContextTypes.DEFAULT_TYPE, post_id: int, 
-                                comment_content: str, commenter_id: int = None):
+                                comment_content: str, commenter_id: int = None, comment_id: int = None):
     """Notify subscribers when a new comment is posted"""
     try:
         # Get post details
@@ -348,11 +348,12 @@ async def notify_comment_on_post(context: ContextTypes.DEFAULT_TYPE, post_id: in
             content += f"Post: {truncate_text(post_content, 50)}...\n"
             content += f"Comment: {truncate_text(comment_content, 80)}..."
             
-            # Create keyboard
+            # Create keyboard with Reply button that replies to the specific comment
+            reply_callback = f"reply_comment_{comment_id}" if comment_id else f"add_comment_{post_id}"
             keyboard = InlineKeyboardMarkup([
                 [
                     InlineKeyboardButton("👀 View Comments", callback_data=f"see_comments_{post_id}_1"),
-                    InlineKeyboardButton("💬 Reply", callback_data=f"add_comment_{post_id}")
+                    InlineKeyboardButton("💬 Reply", callback_data=reply_callback)
                 ],
                 [
                     InlineKeyboardButton("🔕 Unsubscribe", callback_data=f"unsub_{post_id}")
