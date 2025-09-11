@@ -5,7 +5,6 @@ Handles permanent deletion of posts, comments, and associated data
 
 import logging
 from datetime import datetime
-from db import get_db
 from db_connection import get_db_connection
 from config import CHANNEL_ID
 
@@ -22,97 +21,104 @@ def delete_post_completely(post_id: int, admin_user_id: int) -> tuple[bool, dict
     Returns (success, deletion_stats)
     """
     try:
-        conn = get_db()
-        cursor = conn.cursor()
+        db_conn = get_db_connection()
+        placeholder = db_conn.get_placeholder()
         
-        # First, verify the post exists and get its details
-        cursor.execute("SELECT post_id, content, category, approved, channel_message_id FROM posts WHERE post_id = ?", (post_id,))
-        post_data = cursor.fetchone()
-        
-        if not post_data:
-            return False, f"Post #{post_id} not found"
-        
-        post_id_db, content, category, approved, channel_message_id = post_data
-        
-        # Start transaction
-        cursor.execute("BEGIN TRANSACTION")
-        
-        try:
-            # Get all comment IDs associated with this post (including replies)
-            cursor.execute("SELECT comment_id FROM comments WHERE post_id = ?", (post_id,))
-            comment_ids = [row[0] for row in cursor.fetchall()]
+        with db_conn.get_connection() as conn:
+            cursor = conn.cursor()
             
-            deletion_stats = {
-                'comments_deleted': len(comment_ids),
-                'reactions_deleted': 0,
-                'reports_deleted': 0
-            }
+            # First, verify the post exists and get its details
+            cursor.execute(f"SELECT post_id, content, category, approved, channel_message_id FROM posts WHERE post_id = {placeholder}", (post_id,))
+            post_data = cursor.fetchone()
             
-            if comment_ids:
-                # Delete all reactions on these comments (from reactions table)
-                placeholders = ','.join(['?' for _ in comment_ids])
-                cursor.execute(f"SELECT COUNT(*) FROM reactions WHERE target_type = 'comment' AND target_id IN ({placeholders})", comment_ids)
-                reactions_count = cursor.fetchone()[0]
-                deletion_stats['reactions_deleted'] = reactions_count
+            if not post_data:
+                return False, f"Post #{post_id} not found"
+            
+            post_id_db, content, category, approved, channel_message_id = post_data
+            
+            # Start transaction
+            if db_conn.use_postgresql:
+                cursor.execute("BEGIN")
+            else:
+                cursor.execute("BEGIN TRANSACTION")
+            
+            try:
+                # Get all comment IDs associated with this post (including replies)
+                cursor.execute(f"SELECT comment_id FROM comments WHERE post_id = {placeholder}", (post_id,))
+                comment_ids = [row[0] for row in cursor.fetchall()]
                 
-                cursor.execute(f"DELETE FROM reactions WHERE target_type = 'comment' AND target_id IN ({placeholders})", comment_ids)
-                
-                # Delete all reports on these comments
-                cursor.execute(f"SELECT COUNT(*) FROM reports WHERE target_type = 'comment' AND target_id IN ({placeholders})", comment_ids)
-                comment_reports_count = cursor.fetchone()[0]
-                deletion_stats['reports_deleted'] += comment_reports_count
-                
-                cursor.execute(f"DELETE FROM reports WHERE target_type = 'comment' AND target_id IN ({placeholders})", comment_ids)
-                
-                # Delete all comments
-                cursor.execute("DELETE FROM comments WHERE post_id = ?", (post_id,))
-            
-            # Delete reports on the post itself
-            cursor.execute("SELECT COUNT(*) FROM reports WHERE target_type = 'post' AND target_id = ?", (post_id,))
-            post_reports_count = cursor.fetchone()[0]
-            deletion_stats['reports_deleted'] += post_reports_count
-            
-            cursor.execute("DELETE FROM reports WHERE target_type = 'post' AND target_id = ?", (post_id,))
-            
-            # Delete any reactions on the post (if they exist)
-            cursor.execute("DELETE FROM reactions WHERE target_type = 'post' AND target_id = ?", (post_id,))
-            
-            # Finally, delete the post itself
-            cursor.execute("DELETE FROM posts WHERE post_id = ?", (post_id,))
-            
-            # Log the deletion action
-            log_admin_deletion(
-                admin_user_id=admin_user_id,
-                action_type="DELETE_POST",
-                target_type="post",
-                target_id=post_id,
-                details={
-                    "content_preview": content[:100] + "..." if len(content) > 100 else content,
-                    "category": category,
-                    "was_approved": bool(approved),
-                    "channel_message_id": channel_message_id,
-                    "deletion_stats": deletion_stats,
-                    "reason": "Admin deletion"
+                deletion_stats = {
+                    'comments_deleted': len(comment_ids),
+                    'reactions_deleted': 0,
+                    'reports_deleted': 0
                 }
-            )
-            
-            # Commit the transaction
-            cursor.execute("COMMIT")
-            conn.close()
-            
-            success_msg = f"Post #{post_id} completely deleted:\n"
-            success_msg += f"• Post deleted\n"
-            success_msg += f"• {deletion_stats['comments_deleted']} comments deleted\n"
-            success_msg += f"• {deletion_stats['reactions_deleted']} reactions deleted\n"
-            success_msg += f"• {deletion_stats['reports_deleted']} reports deleted"
-            
-            return True, deletion_stats
-            
-        except Exception as e:
-            cursor.execute("ROLLBACK")
-            conn.close()
-            logger.error(f"Error during post deletion transaction: {e}")
-            return False, f"Database error during deletion: {str(e)}"
+                
+                if comment_ids:
+                    # Delete all reactions on these comments (from reactions table)
+                    placeholders_str = ','.join([placeholder for _ in comment_ids])
+                    cursor.execute(f"SELECT COUNT(*) FROM reactions WHERE target_type = 'comment' AND target_id IN ({placeholders_str})", comment_ids)
+                    reactions_count = cursor.fetchone()[0]
+                    deletion_stats['reactions_deleted'] = reactions_count
+                    
+                    cursor.execute(f"DELETE FROM reactions WHERE target_type = 'comment' AND target_id IN ({placeholders_str})", comment_ids)
+                    
+                    # Delete all reports on these comments
+                    cursor.execute(f"SELECT COUNT(*) FROM reports WHERE target_type = 'comment' AND target_id IN ({placeholders_str})", comment_ids)
+                    comment_reports_count = cursor.fetchone()[0]
+                    deletion_stats['reports_deleted'] += comment_reports_count
+                    
+                    cursor.execute(f"DELETE FROM reports WHERE target_type = 'comment' AND target_id IN ({placeholders_str})", comment_ids)
+                    
+                    # Delete all comments
+                    cursor.execute(f"DELETE FROM comments WHERE post_id = {placeholder}", (post_id,))
+                
+                # Delete reports on the post itself
+                cursor.execute(f"SELECT COUNT(*) FROM reports WHERE target_type = 'post' AND target_id = {placeholder}", (post_id,))
+                post_reports_count = cursor.fetchone()[0]
+                deletion_stats['reports_deleted'] += post_reports_count
+                
+                cursor.execute(f"DELETE FROM reports WHERE target_type = 'post' AND target_id = {placeholder}", (post_id,))
+                
+                # Delete any reactions on the post (if they exist)
+                cursor.execute(f"DELETE FROM reactions WHERE target_type = 'post' AND target_id = {placeholder}", (post_id,))
+                
+                # Finally, delete the post itself
+                cursor.execute(f"DELETE FROM posts WHERE post_id = {placeholder}", (post_id,))
+                
+                # Log the deletion action
+                log_admin_deletion(
+                    admin_user_id=admin_user_id,
+                    action_type="DELETE_POST",
+                    target_type="post",
+                    target_id=post_id,
+                    details={
+                        "content_preview": content[:100] + "..." if len(content) > 100 else content,
+                        "category": category,
+                        "was_approved": bool(approved),
+                        "channel_message_id": channel_message_id,
+                        "deletion_stats": deletion_stats,
+                        "reason": "Admin deletion"
+                    }
+                )
+                
+                # Commit the transaction
+                if db_conn.use_postgresql:
+                    cursor.execute("COMMIT")
+                else:
+                    cursor.execute("COMMIT")
+                    
+                conn.commit()  # Also call conn.commit() for safety
+                
+                return True, deletion_stats
+                
+            except Exception as e:
+                if db_conn.use_postgresql:
+                    cursor.execute("ROLLBACK")
+                else:
+                    cursor.execute("ROLLBACK")
+                conn.rollback()
+                logger.error(f"Error during post deletion transaction: {e}")
+                return False, f"Database error during deletion: {str(e)}"
             
     except Exception as e:
         logger.error(f"Error deleting post {post_id}: {e}")
@@ -129,20 +135,26 @@ def delete_comment_completely(comment_id: int, admin_user_id: int) -> tuple[bool
     Returns (success, deletion_stats)
     """
     try:
-        conn = get_db()
-        cursor = conn.cursor()
+        db_conn = get_db_connection()
+        placeholder = db_conn.get_placeholder()
         
-        # First, verify the comment exists and get its details
-        cursor.execute("SELECT comment_id, post_id, content, parent_comment_id FROM comments WHERE comment_id = ?", (comment_id,))
-        comment_data = cursor.fetchone()
-        
-        if not comment_data:
-            return False, f"Comment #{comment_id} not found"
-        
-        comment_id_db, post_id, content, parent_comment_id = comment_data
-        
-        # Start transaction
-        cursor.execute("BEGIN TRANSACTION")
+        with db_conn.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # First, verify the comment exists and get its details
+            cursor.execute(f"SELECT comment_id, post_id, content, parent_comment_id FROM comments WHERE comment_id = {placeholder}", (comment_id,))
+            comment_data = cursor.fetchone()
+            
+            if not comment_data:
+                return False, f"Comment #{comment_id} not found"
+            
+            comment_id_db, post_id, content, parent_comment_id = comment_data
+            
+            # Start transaction
+            if db_conn.use_postgresql:
+                cursor.execute("BEGIN")
+            else:
+                cursor.execute("BEGIN TRANSACTION")
         
         try:
             deletion_stats = {
