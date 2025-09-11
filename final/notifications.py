@@ -27,50 +27,96 @@ class NotificationEngine:
             cursor = conn.cursor()
 
             # User notification preferences
-            cursor.execute(adapt_query('''
-                CREATE TABLE IF NOT EXISTS notification_preferences (
-                    user_id INTEGER PRIMARY KEY,
-                    comment_notifications BOOLEAN DEFAULT 1,
-                    favorite_categories TEXT DEFAULT '',
-                    daily_digest BOOLEAN DEFAULT 1,
-                    trending_alerts BOOLEAN DEFAULT 1,
-                    digest_time TEXT DEFAULT '18:00',
-                    notification_frequency TEXT DEFAULT 'immediate',
-                    last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (user_id) REFERENCES users (user_id)
-                )
-            '''))
+            if db_conn.use_postgresql:
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS notification_preferences (
+                        user_id INTEGER PRIMARY KEY,
+                        comment_notifications BOOLEAN DEFAULT TRUE,
+                        favorite_categories TEXT DEFAULT '',
+                        daily_digest BOOLEAN DEFAULT TRUE,
+                        trending_alerts BOOLEAN DEFAULT TRUE,
+                        digest_time TEXT DEFAULT '18:00',
+                        notification_frequency TEXT DEFAULT 'immediate',
+                        last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (user_id) REFERENCES users (user_id)
+                    )
+                ''')
+            else:
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS notification_preferences (
+                        user_id INTEGER PRIMARY KEY,
+                        comment_notifications BOOLEAN DEFAULT 1,
+                        favorite_categories TEXT DEFAULT '',
+                        daily_digest BOOLEAN DEFAULT 1,
+                        trending_alerts BOOLEAN DEFAULT 1,
+                        digest_time TEXT DEFAULT '18:00',
+                        notification_frequency TEXT DEFAULT 'immediate',
+                        last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (user_id) REFERENCES users (user_id)
+                    )
+                ''')
 
             # Notification history
-            cursor.execute(adapt_query('''
-                CREATE TABLE IF NOT EXISTS notification_history (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER,
-                    notification_type TEXT NOT NULL,
-                    title TEXT NOT NULL,
-                    content TEXT NOT NULL,
-                    related_post_id INTEGER,
-                    related_comment_id INTEGER,
-                    sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    delivered BOOLEAN DEFAULT 0,
-                    clicked BOOLEAN DEFAULT 0,
-                    FOREIGN KEY (user_id) REFERENCES users (user_id)
-                )
-            '''))
+            if db_conn.use_postgresql:
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS notification_history (
+                        id SERIAL PRIMARY KEY,
+                        user_id INTEGER,
+                        notification_type TEXT NOT NULL,
+                        title TEXT NOT NULL,
+                        content TEXT NOT NULL,
+                        related_post_id INTEGER,
+                        related_comment_id INTEGER,
+                        sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        delivered BOOLEAN DEFAULT FALSE,
+                        clicked BOOLEAN DEFAULT FALSE,
+                        FOREIGN KEY (user_id) REFERENCES users (user_id)
+                    )
+                ''')
+            else:
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS notification_history (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id INTEGER,
+                        notification_type TEXT NOT NULL,
+                        title TEXT NOT NULL,
+                        content TEXT NOT NULL,
+                        related_post_id INTEGER,
+                        related_comment_id INTEGER,
+                        sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        delivered BOOLEAN DEFAULT 0,
+                        clicked BOOLEAN DEFAULT 0,
+                        FOREIGN KEY (user_id) REFERENCES users (user_id)
+                    )
+                ''')
 
             # User subscriptions to posts (for comment notifications)
-            cursor.execute(adapt_query('''
-                CREATE TABLE IF NOT EXISTS post_subscriptions (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER,
-                    post_id INTEGER,
-                    subscribed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    active BOOLEAN DEFAULT 1,
-                    FOREIGN KEY (user_id) REFERENCES users (user_id),
-                    FOREIGN KEY (post_id) REFERENCES posts (post_id),
-                    UNIQUE(user_id, post_id)
-                )
-            '''))
+            if db_conn.use_postgresql:
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS post_subscriptions (
+                        id SERIAL PRIMARY KEY,
+                        user_id INTEGER,
+                        post_id INTEGER,
+                        subscribed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        active BOOLEAN DEFAULT TRUE,
+                        FOREIGN KEY (user_id) REFERENCES users (user_id),
+                        FOREIGN KEY (post_id) REFERENCES posts (post_id),
+                        UNIQUE(user_id, post_id)
+                    )
+                ''')
+            else:
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS post_subscriptions (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id INTEGER,
+                        post_id INTEGER,
+                        subscribed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        active BOOLEAN DEFAULT 1,
+                        FOREIGN KEY (user_id) REFERENCES users (user_id),
+                        FOREIGN KEY (post_id) REFERENCES posts (post_id),
+                        UNIQUE(user_id, post_id)
+                    )
+                ''')
 
             # Trending posts cache for alerts
             cursor.execute(adapt_query('''
@@ -121,7 +167,7 @@ def get_user_preferences(user_id: int) -> Dict:
                     f'''
                     INSERT INTO notification_preferences 
                     (user_id, comment_notifications, daily_digest, trending_alerts)
-                    VALUES ({placeholder}, 1, 1, 1)
+                    VALUES ({placeholder}, TRUE, TRUE, TRUE)
                     ON CONFLICT (user_id) DO NOTHING
                     ''', (user_id,)
                 )
