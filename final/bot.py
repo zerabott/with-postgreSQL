@@ -1902,6 +1902,7 @@ async def show_comments_directly(update: Update, context: ContextTypes.DEFAULT_T
         # comment_data is already a flat dictionary with all comment properties
         comment_id = comment_data['comment_id']
         content = comment_data['content'] or ""
+        flagged = comment_data.get('flagged', 0)
         timestamp = comment_data['timestamp']
         likes = comment_data['likes'] if 'likes' in comment_data else 0
         dislikes = comment_data['dislikes'] if 'dislikes' in comment_data else 0
@@ -1922,7 +1923,12 @@ async def show_comments_directly(update: Update, context: ContextTypes.DEFAULT_T
             formatted = format_reply(html_escape(parent_text), html_escape(content))
             comment_text = f"{formatted}\n\n<code>comment# {sequential_comment_number}</code>\n{date_text}"
         else:
-            comment_text = f"<b>comment# {sequential_comment_number}</b>\n\n{html_escape(content)}\n\n{date_text}"
+            # If flagged/removed, show standard notice
+            if flagged:
+                display_content = html_escape("This comment was removed due to multiple reports.")
+            else:
+                display_content = html_escape(content)
+            comment_text = f"<b>comment# {sequential_comment_number}</b>\n\n{display_content}\n\n{date_text}"
         
         # Create reaction buttons with adaptive layout based on comment length
         comment_length = len(content)
@@ -2120,6 +2126,7 @@ async def see_comments_callback(update: Update, context: ContextTypes.DEFAULT_TY
     for item in comments_flat:
         comment_id = item['comment_id']
         content = item['content'] or ""
+        flagged = item.get('flagged', 0)
         timestamp = item['timestamp']
         likes = item['likes'] if 'likes' in item else 0
         dislikes = item['dislikes'] if 'dislikes' in item else 0
@@ -2139,7 +2146,12 @@ async def see_comments_callback(update: Update, context: ContextTypes.DEFAULT_TY
             formatted = format_reply(html_escape(parent_text), html_escape(content))
             text = f"{formatted}\n\n<code>comment# {comment_number}</code>\n{date_text}"
         else:
-            text = f"<b>comment# {comment_number}</b>\n\n{html_escape(content)}\n\n{date_text}"
+            # If flagged/removed, show standard notice instead of original content
+            if flagged:
+                display_content = html_escape("This comment was removed due to multiple reports.")
+            else:
+                display_content = html_escape(content)
+            text = f"<b>comment# {comment_number}</b>\n\n{display_content}\n\n{date_text}"
 
         # Create reaction buttons (always include Reply and Report in flat model)
         comment_keyboard = [
@@ -3188,6 +3200,33 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         comment_id = int(data.replace("report_comment_", ""))
         await show_report_reasons(update, context, 'comment', comment_id)
         return
+
+    # Reporting: generic flows (reasons, submit, cancel, back)
+    if data.startswith("report_post_"):
+        post_id = int(data.replace("report_post_", ""))
+        await show_report_reasons(update, context, 'post', post_id)
+        return
+
+    if data.startswith("report_reason_"):
+        await handle_report_reason_callback(update, context)
+        return
+
+    if data.startswith("submit_report_"):
+        await handle_submit_report(update, context)
+        return
+
+    if data == "cancel_report":
+        await handle_cancel_report(update, context)
+        return
+
+    if data.startswith("report_post_") or data.startswith("report_comment_"):
+        # Back navigation from confirmation goes here (already handled above for comment; this is a safety net)
+        parts = data.split('_')
+        if len(parts) >= 3:
+            ctype = parts[1]
+            cid = int(parts[2])
+            await show_report_reasons(update, context, ctype, cid)
+            return
     
     
     # Admin dashboard callbacks
@@ -3301,6 +3340,12 @@ Select a category below:
     if data.startswith("admin_reply_"):
         await handle_admin_reply_callback(update, context)
         return
+
+    # Admin dismiss report (from immediate notification)
+    if data.startswith("admin_dismiss_report_comment_") or data.startswith("admin_dismiss_report_post_"):
+        from enhanced_reporting import handle_admin_dismiss_report
+        await handle_admin_dismiss_report(update, context)
+        return
     
     if data.startswith("admin_history_"):
         await handle_admin_history_callback(update, context)
@@ -3408,6 +3453,45 @@ Select a category below:
     
     if data.startswith("admin_delete_comment_"):
         await handle_admin_delete_comment_callback(update, context)
+        return
+
+    # Admin action: replace comment content with removal notice (from report notification)
+    if data.startswith("admin_replace_comment_"):
+        from admin_deletion import replace_comment_with_message
+        try:
+            comment_id = int(data.replace("admin_replace_comment_", ""))
+        except Exception:
+            comment_id = None
+        
+        if comment_id:
+            admin_user_id = query.from_user.id
+            success, replacement_stats = replace_comment_with_message(
+                comment_id=comment_id,
+                admin_user_id=admin_user_id,
+                replacement_message="[This comment has been removed by moderators due to reports]"
+            )
+            
+            if success:
+                await query.answer("✅ Comment replaced with removal notice")
+                await query.edit_message_text(
+                    f"✅ **Comment Replaced Successfully**\\n\\n"
+                    f"**Comment #{comment_id}** has been replaced with a removal notice\\."
+                    f"\\n\\n**Statistics:**\\n"
+                    f"• Comments replaced: {replacement_stats['comments_replaced']}\\n"
+                    f"• Replies replaced: {replacement_stats['replies_replaced']}\\n"
+                    f"• Reports cleared: {replacement_stats['reports_cleared']}\\n\\n"
+                    f"The comment structure has been preserved while hiding inappropriate content\\.",
+                    parse_mode="MarkdownV2"
+                )
+            else:
+                error_message = replacement_stats.get('error', 'Unknown error')
+                await query.answer("❗ Failed to replace comment")
+                await query.edit_message_text(
+                    f"❗ **Failed to replace comment #{comment_id}**\\n\\n"
+                    f"Error: {escape_markdown_text(error_message)}\\n\\n"
+                    f"Please try again or contact system administrator\\.",
+                    parse_mode="MarkdownV2"
+                )
         return
         
     # Post and comment deletion confirmation callbacks
@@ -4880,7 +4964,7 @@ async def admin_system_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="MarkdownV2"
     )
 
-# Add handlers for missing admin panel callbacks
+# Add handlers for missing admin panel callbacks and reporting system functionality
 async def admin_recent_posts(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show recent approved posts with admin management options"""
     query = update.callback_query
