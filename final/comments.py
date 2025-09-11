@@ -323,6 +323,26 @@ def get_parent_comment_for_reply(comment_id):
             f"SELECT parent_comment_id FROM comments WHERE comment_id = {placeholder}",
             (comment_id,)
         )
+
+
+def replace_comment_with_notice(comment_id: int, notice: str = "This comment was removed due to multiple reports.") -> bool:
+    """Replace a comment's content with a standard removal notice and flag it.
+    Returns True on success.
+    """
+    try:
+        db_conn = get_db_connection()
+        with db_conn.get_connection() as conn:
+            cursor = conn.cursor()
+            placeholder = db_conn.get_placeholder()
+            cursor.execute(
+                f"UPDATE comments SET content = {placeholder}, flagged = 1 WHERE comment_id = {placeholder}",
+                (notice, comment_id)
+            )
+            conn.commit()
+            return True
+    except Exception as e:
+        logger.error(f"Error replacing comment {comment_id} with notice: {e}")
+        return False
         result = cursor.fetchone()
         
         if not result or not result[0]:
