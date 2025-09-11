@@ -2860,6 +2860,13 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
     user_id = update.effective_user.id
     
+    # Enhanced logging for debugging deletion button issues
+    logger.info(f"Callback received: user={user_id}, data='{data}'")
+    
+    # Special logging for deletion-related callbacks
+    if "delete_post_" in data or "confirm_delete_post_" in data:
+        logger.info(f"DELETION CALLBACK: User {user_id} triggered '{data}' - Admin check: {user_id in ADMIN_IDS}")
+    
     # Admin callbacks
     if data.startswith(("approve_", "reject_", "flag_", "block_", "unblock_")):
         await admin_callback(update, context)
@@ -6560,19 +6567,26 @@ async def handle_admin_delete_post_callback(update: Update, context: ContextType
     query = update.callback_query
     await query.answer()
     
-    user_id = update.effective_user.id
-    if user_id not in ADMIN_IDS:
-        await query.answer("❗ Not authorized")
-        return
-    
-    post_id = int(query.data.replace("admin_delete_post_", ""))
-    
-    # Get post details first
-    post_details = get_post_details_for_deletion(post_id)
-    
-    if not post_details:
-        await query.answer("❗ Post not found!")
-        return
+    try:
+        user_id = update.effective_user.id
+        logger.info(f"Admin delete post callback triggered by user {user_id}")
+        
+        if user_id not in ADMIN_IDS:
+            logger.warning(f"Unauthorized delete attempt by user {user_id}")
+            await query.answer("❗ Not authorized")
+            return
+        
+        post_id = int(query.data.replace("admin_delete_post_", ""))
+        logger.info(f"Admin {user_id} attempting to delete post {post_id}")
+        
+        # Get post details first
+        post_details = get_post_details_for_deletion(post_id)
+        logger.info(f"Post details for {post_id}: {post_details}")
+        
+        if not post_details:
+            logger.warning(f"Post {post_id} not found for deletion")
+            await query.answer("❗ Post not found!")
+            return
     
     # Show confirmation dialog
     content_preview = post_details['content'][:100] + "\\.\\.\\." if len(post_details['content']) > 100 else post_details['content']
