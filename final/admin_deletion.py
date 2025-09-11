@@ -165,7 +165,7 @@ def delete_comment_completely(comment_id: int, admin_user_id: int) -> tuple[bool
             }
             
             # Get all reply IDs to this comment
-            cursor.execute("SELECT comment_id FROM comments WHERE parent_comment_id = ?", (comment_id,))
+            cursor.execute(f"SELECT comment_id FROM comments WHERE parent_comment_id = {placeholder}", (comment_id,))
             reply_ids = [row[0] for row in cursor.fetchall()]
             deletion_stats['replies_deleted'] = len(reply_ids)
             
@@ -174,26 +174,26 @@ def delete_comment_completely(comment_id: int, admin_user_id: int) -> tuple[bool
             
             if all_comment_ids:
                 # Delete all reactions on these comments (from reactions table)
-                placeholders = ','.join(['?' for _ in all_comment_ids])
-                cursor.execute(f"SELECT COUNT(*) FROM reactions WHERE target_type = 'comment' AND target_id IN ({placeholders})", all_comment_ids)
+                placeholders_str = ','.join([placeholder for _ in all_comment_ids])
+                cursor.execute(f"SELECT COUNT(*) FROM reactions WHERE target_type = 'comment' AND target_id IN ({placeholders_str})", all_comment_ids)
                 reactions_count = cursor.fetchone()[0]
                 deletion_stats['reactions_deleted'] = reactions_count
                 
-                cursor.execute(f"DELETE FROM reactions WHERE target_type = 'comment' AND target_id IN ({placeholders})", all_comment_ids)
+                cursor.execute(f"DELETE FROM reactions WHERE target_type = 'comment' AND target_id IN ({placeholders_str})", all_comment_ids)
                 
                 # Delete all reports on these comments
-                cursor.execute(f"SELECT COUNT(*) FROM reports WHERE target_type = 'comment' AND target_id IN ({placeholders})", all_comment_ids)
+                cursor.execute(f"SELECT COUNT(*) FROM reports WHERE target_type = 'comment' AND target_id IN ({placeholders_str})", all_comment_ids)
                 reports_count = cursor.fetchone()[0]
                 deletion_stats['reports_deleted'] = reports_count
                 
-                cursor.execute(f"DELETE FROM reports WHERE target_type = 'comment' AND target_id IN ({placeholders})", all_comment_ids)
+                cursor.execute(f"DELETE FROM reports WHERE target_type = 'comment' AND target_id IN ({placeholders_str})", all_comment_ids)
                 
                 # Delete all replies first
                 if reply_ids:
-                    cursor.execute("DELETE FROM comments WHERE parent_comment_id = ?", (comment_id,))
+                    cursor.execute(f"DELETE FROM comments WHERE parent_comment_id = {placeholder}", (comment_id,))
                 
                 # Delete the main comment
-                cursor.execute("DELETE FROM comments WHERE comment_id = ?", (comment_id,))
+                cursor.execute(f"DELETE FROM comments WHERE comment_id = {placeholder}", (comment_id,))
             
             # Log the deletion action
             log_admin_deletion(
@@ -212,14 +212,21 @@ def delete_comment_completely(comment_id: int, admin_user_id: int) -> tuple[bool
             )
             
             # Commit the transaction
-            cursor.execute("COMMIT")
-            conn.close()
+            if db_conn.use_postgresql:
+                cursor.execute("COMMIT")
+            else:
+                cursor.execute("COMMIT")
+                
+            conn.commit()  # Also call conn.commit() for safety
             
             return True, deletion_stats
             
         except Exception as e:
-            cursor.execute("ROLLBACK")
-            conn.close()
+            if db_conn.use_postgresql:
+                cursor.execute("ROLLBACK")
+            else:
+                cursor.execute("ROLLBACK")
+            conn.rollback()
             logger.error(f"Error during comment deletion transaction: {e}")
             return False, f"Database error during deletion: {str(e)}"
             
@@ -233,32 +240,47 @@ def log_admin_deletion(admin_user_id: int, action_type: str, target_type: str, t
     Log admin deletion actions for audit purposes
     """
     try:
-        conn = get_db()
-        cursor = conn.cursor()
+        db_conn = get_db_connection()
+        placeholder = db_conn.get_placeholder()
         
-        # Create admin_actions table if it doesn't exist
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS admin_actions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                admin_user_id INTEGER NOT NULL,
-                action_type TEXT NOT NULL,
-                target_type TEXT NOT NULL,
-                target_id INTEGER NOT NULL,
-                details TEXT,
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        
-        # Insert the log entry
-        import json
-        cursor.execute("""
-            INSERT INTO admin_actions (admin_user_id, action_type, target_type, target_id, details)
-            VALUES (?, ?, ?, ?, ?)
-        """, (admin_user_id, action_type, target_type, target_id, json.dumps(details)))
-        
-        conn.commit()
-        conn.close()
-        
+        with db_conn.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Create admin_actions table if it doesn't exist
+            if db_conn.use_postgresql:
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS admin_actions (
+                        id SERIAL PRIMARY KEY,
+                        admin_user_id INTEGER NOT NULL,
+                        action_type VARCHAR(255) NOT NULL,
+                        target_type VARCHAR(255) NOT NULL,
+                        target_id INTEGER NOT NULL,
+                        details TEXT,
+                        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+            else:
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS admin_actions (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        admin_user_id INTEGER NOT NULL,
+                        action_type TEXT NOT NULL,
+                        target_type TEXT NOT NULL,
+                        target_id INTEGER NOT NULL,
+                        details TEXT,
+                        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+            
+            # Insert the log entry
+            import json
+            cursor.execute(f"""
+                INSERT INTO admin_actions (admin_user_id, action_type, target_type, target_id, details)
+                VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder})
+            """, (admin_user_id, action_type, target_type, target_id, json.dumps(details)))
+            
+            conn.commit()
+            
         logger.info(f"Admin {admin_user_id} performed {action_type} on {target_type} #{target_id}")
         
     except Exception as e:
@@ -355,33 +377,35 @@ def clear_reports_for_content(target_type: str, target_id: int) -> tuple[bool, i
     Clear all reports for a specific piece of content without deleting the content
     """
     try:
-        conn = get_db()
-        cursor = conn.cursor()
+        db_conn = get_db_connection()
+        placeholder = db_conn.get_placeholder()
         
-        # Count reports before deletion
-        cursor.execute("SELECT COUNT(*) FROM reports WHERE target_type = ? AND target_id = ?", (target_type, target_id))
-        report_count = cursor.fetchone()[0]
-        
-        if report_count == 0:
-            return True, 0
-        
-        # Delete the reports
-        cursor.execute("DELETE FROM reports WHERE target_type = ? AND target_id = ?", (target_type, target_id))
-        
-        # Log the action (using dummy admin user ID since it's not passed)
-        log_admin_deletion(
-            admin_user_id=0,  # Dummy admin user ID
-            action_type="CLEAR_REPORTS",
-            target_type=target_type,
-            target_id=target_id,
-            details={
-                "reports_cleared": report_count,
-                "reason": "Admin cleared reports"
-            }
-        )
-        
-        conn.commit()
-        conn.close()
+        with db_conn.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Count reports before deletion
+            cursor.execute(f"SELECT COUNT(*) FROM reports WHERE target_type = {placeholder} AND target_id = {placeholder}", (target_type, target_id))
+            report_count = cursor.fetchone()[0]
+            
+            if report_count == 0:
+                return True, 0
+            
+            # Delete the reports
+            cursor.execute(f"DELETE FROM reports WHERE target_type = {placeholder} AND target_id = {placeholder}", (target_type, target_id))
+            
+            # Log the action (using dummy admin user ID since it's not passed)
+            log_admin_deletion(
+                admin_user_id=0,  # Dummy admin user ID
+                action_type="CLEAR_REPORTS",
+                target_type=target_type,
+                target_id=target_id,
+                details={
+                    "reports_cleared": report_count,
+                    "reason": "Admin cleared reports"
+                }
+            )
+            
+            conn.commit()
         
         return True, report_count
         
