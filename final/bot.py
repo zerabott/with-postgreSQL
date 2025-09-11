@@ -6793,8 +6793,8 @@ async def handle_confirm_delete_post_callback(update: Update, context: ContextTy
     
     # Show processing message
     await query.edit_message_text(
-        "🗑️ *Deleting Post...*\n\n⏳ Please wait while the post and all related data is being deleted permanently...",
-        parse_mode="MarkdownV2"
+        "<b>🗑️ Deleting Post...</b>\n\n⏳ Please wait while the post and all related data is being deleted permanently...",
+        parse_mode="HTML"
     )
     
     try:
@@ -7113,7 +7113,6 @@ def main():
 
 if __name__ == '__main__':
     main()
-
 
 
 
