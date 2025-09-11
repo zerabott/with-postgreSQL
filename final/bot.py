@@ -6566,32 +6566,32 @@ async def handle_admin_delete_post_callback(update: Update, context: ContextType
     """Handle admin delete post button"""
     query = update.callback_query
     await query.answer()
-
+    
     try:
         user_id = update.effective_user.id
         logger.info(f"Admin delete post callback triggered by user {user_id}")
-
+        
         if user_id not in ADMIN_IDS:
             logger.warning(f"Unauthorized delete attempt by user {user_id}")
             await query.answer("❗ Not authorized")
             return
-
+        
         post_id = int(query.data.replace("admin_delete_post_", ""))
         logger.info(f"Admin {user_id} attempting to delete post {post_id}")
-
+        
         # Get post details first
         post_details = get_post_details_for_deletion(post_id)
         logger.info(f"Post details for {post_id}: {post_details}")
-
+        
         if not post_details:
             logger.warning(f"Post {post_id} not found for deletion")
             await query.answer("❗ Post not found!")
             return
-
-        # Show confirmation dialog
-        content_preview = post_details['content'][:100] + "\\.\\.\\." if len(post_details['content']) > 100 else post_details['content']
-
-        confirm_text = f"""⚠️ *Confirm Deletion*
+    
+    # Show confirmation dialog
+    content_preview = post_details['content'][:100] + "\\.\\.\\." if len(post_details['content']) > 100 else post_details['content']
+    
+    confirm_text = f"""⚠️ *Confirm Deletion*
 
 🗑️ **Post to Delete:**
 • ID: \\#{post_id}
@@ -6606,24 +6606,20 @@ async def handle_admin_delete_post_callback(update: Update, context: ContextType
 • Cannot be undone
 
 Are you sure you want to proceed?"""
-
-        keyboard = [
-            [
-                InlineKeyboardButton("🗑️ Yes, Delete Permanently", callback_data=f"confirm_delete_post_{post_id}"),
-                InlineKeyboardButton("❌ Cancel", callback_data="admin_view_reports")
-            ]
+    
+    keyboard = [
+        [
+            InlineKeyboardButton("🗑️ Yes, Delete Permanently", callback_data=f"confirm_delete_post_{post_id}"),
+            InlineKeyboardButton("❌ Cancel", callback_data="admin_view_reports")
         ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-
-        await query.edit_message_text(
-            confirm_text,
-            reply_markup=reply_markup,
-            parse_mode="MarkdownV2"
-        )
-    except Exception as e:
-        logger.error(f"Error in admin delete post callback: {e}")
-        await query.answer("An error occurred. Please try again later.")
-        await query.edit_message_text("An unexpected error occurred while processing your request.")
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(
+        confirm_text,
+        reply_markup=reply_markup,
+        parse_mode="MarkdownV2"
+    )
 
 async def handle_admin_delete_comment_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle admin delete comment button"""
@@ -6859,14 +6855,13 @@ async def handle_confirm_delete_post_callback(update: Update, context: ContextTy
             logger.info(f"Admin {user_id} successfully deleted post {post_id} with {deletion_stats['comments_deleted']} comments")
         
         else:
-            # Deletion failed
-            error_text = f"""❌ *Deletion Failed*
-
-🚨 An error occurred while deleting post \\#{post_id}.
-
-Error: {escape_markdown_text(str(deletion_stats))}
-
-Please try again or contact system administrator."""
+            # Deletion failed (use HTML formatting to avoid escaping issues)
+            error_text = (
+                f"<b>❌ Deletion Failed</b>\n\n"
+                f"🚨 An error occurred while deleting post #{post_id}.\n\n"
+                f"Error: {str(deletion_stats)}\n\n"
+                f"Please try again or contact system administrator."
+            )
             
             keyboard = [
                 [
@@ -6879,7 +6874,7 @@ Please try again or contact system administrator."""
             await query.edit_message_text(
                 error_text,
                 reply_markup=reply_markup,
-                parse_mode="MarkdownV2"
+                parse_mode="HTML"
             )
             
             # Log the failure
@@ -6888,13 +6883,13 @@ Please try again or contact system administrator."""
     except Exception as e:
         logger.error(f"Error in handle_confirm_delete_post_callback: {e}")
         
-        error_text = f"""❌ *Deletion Error*
-
-🚨 An unexpected error occurred while deleting the post\\.
-
-Error: {escape_markdown_text(str(e))}
-
-Please try again later or contact the system administrator\\."""
+        # Unexpected error (use HTML formatting to avoid escaping issues)
+        error_text = (
+            f"<b>❌ Deletion Error</b>\n\n"
+            f"🚨 An unexpected error occurred while deleting the post.\n\n"
+            f"Error: {str(e)}\n\n"
+            f"Please try again later or contact the system administrator."
+        )
         
         keyboard = [[
             InlineKeyboardButton("🔙 Back to Reports", callback_data="admin_view_reports")
@@ -6904,7 +6899,7 @@ Please try again later or contact the system administrator\\."""
         await query.edit_message_text(
             error_text,
             reply_markup=reply_markup,
-            parse_mode="MarkdownV2"
+            parse_mode="HTML"
         )
 
 async def handle_confirm_delete_comment_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -7115,7 +7110,6 @@ def main():
 
 if __name__ == '__main__':
     main()
-
 
 
 
