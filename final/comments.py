@@ -413,8 +413,68 @@ def format_reply(parent_text, child_text, parent_author="Anonymous"):
     if len(parent_text) > 150:
         parent_text = parent_text[:150] + "..."
     
-    # Use Telegram's native blockquote styling
+    # Use Telegram's native blockquote styling with expandable feature
     return f"<blockquote expandable>{parent_text}</blockquote>\n\n{child_text}"
+
+def format_comment_display(comment_data, user_id, current_page=1, comment_index=0):
+    """Unified function to format comments for consistent display across all interfaces"""
+    from html import escape as html_escape
+    from utils import format_date_only
+    from config import COMMENTS_PER_PAGE
+    
+    comment_id = comment_data['comment_id']
+    content = comment_data['content'] or ""
+    flagged = comment_data.get('flagged', 0)
+    timestamp = comment_data['timestamp']
+    likes = comment_data['likes'] if 'likes' in comment_data else 0
+    dislikes = comment_data['dislikes'] if 'dislikes' in comment_data else 0
+    is_reply = comment_data.get('is_reply', False)
+    
+    # Calculate sequential comment number based on page and position
+    sequential_comment_number = (current_page - 1) * COMMENTS_PER_PAGE + comment_index + 1
+    
+    # Get user reaction to current comment
+    user_reaction = get_user_reaction(user_id, comment_id)
+    like_emoji = "👍✅" if user_reaction == "like" else "👍"
+    dislike_emoji = "👎✅" if user_reaction == "dislike" else "👎"
+    
+    # Build the text with proper reply formatting
+    date_text = format_date_only(timestamp)
+    
+    if is_reply and comment_data.get('original_comment'):
+        parent_text = comment_data['original_comment']['content'] or ""
+        # Use HTML escaping for safety and format as reply with blockquote
+        formatted = format_reply(html_escape(parent_text), html_escape(content))
+        comment_text = f"{formatted}\n\n<code>comment# {sequential_comment_number}</code>\n{date_text}"
+    else:
+        # If flagged/removed, show standard notice
+        if flagged:
+            display_content = html_escape("This comment was removed due to multiple reports.")
+        else:
+            display_content = html_escape(content)
+        comment_text = f"<b>comment# {sequential_comment_number}</b>\n\n{display_content}\n\n{date_text}"
+    
+    # Create standardized reaction buttons with consistent layout
+    comment_keyboard = [
+        [
+            InlineKeyboardButton(f"{like_emoji} {likes}", callback_data=f"like_comment_{comment_id}"),
+            InlineKeyboardButton(f"{dislike_emoji} {dislikes}", callback_data=f"dislike_comment_{comment_id}")
+        ],
+        [
+            InlineKeyboardButton("💬 Reply", callback_data=f"reply_comment_{comment_id}"),
+            InlineKeyboardButton("⚠️ Report", callback_data=f"report_comment_{comment_id}")
+        ]
+    ]
+    
+    return {
+        'text': comment_text,
+        'reply_markup': InlineKeyboardMarkup(comment_keyboard),
+        'parse_mode': 'HTML'
+    }
+
+def format_comments_header(total_comments, current_page, total_pages):
+    """Format consistent header for comments display"""
+    return f"<b>💬 Comments ({total_comments} total)</b>\nPage {current_page} of {total_pages}"
 
 def find_comment_page(comment_id):
     """Find which page a comment is on for navigation"""
