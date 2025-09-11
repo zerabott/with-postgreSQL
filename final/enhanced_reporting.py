@@ -84,16 +84,20 @@ Choose the reason that best describes the issue:"""
 def get_content_preview(content_type, content_id):
     """Get content preview for report context"""
     try:
-        if content_type == "comment":
-            query = adapt_query("SELECT content FROM comments WHERE comment_id = ?")
-            result = execute_query(query, (content_id,), fetch='one')
-        elif content_type == "post":
-            query = adapt_query("SELECT content FROM posts WHERE post_id = ?")
-            result = execute_query(query, (content_id,), fetch='one')
-        else:
-            return None
+        db_conn = get_db_connection()
+        with db_conn.get_connection() as conn:
+            cursor = conn.cursor()
+            placeholder = db_conn.get_placeholder()
             
-        return result[0] if result else None
+            if content_type == "comment":
+                cursor.execute(f"SELECT content FROM comments WHERE comment_id = {placeholder}", (content_id,))
+            elif content_type == "post":
+                cursor.execute(f"SELECT content FROM posts WHERE post_id = {placeholder}", (content_id,))
+            else:
+                return None
+                
+            result = cursor.fetchone()
+            return result[0] if result else None
     except Exception as e:
         logger.error(f"Error getting content preview: {e}")
         return None
@@ -101,26 +105,34 @@ def get_content_preview(content_type, content_id):
 def submit_report(user_id, content_type, content_id, reason_id, custom_reason=None):
     """Submit a report to the database with immediate processing"""
     try:
-        # Check if user has already reported this content
-        check_query = adapt_query("SELECT COUNT(*) FROM reports WHERE user_id = ? AND target_type = ? AND target_id = ?")
-        existing_report = execute_query(check_query, (user_id, content_type, content_id), fetch='one')
-        
-        if existing_report and existing_report[0] > 0:
-            return False, "already_reported"
-        
-        # Get reason info
-        reason_emoji, reason_description = get_report_reason_info(reason_id)
-        final_reason = custom_reason if custom_reason else reason_description
-        
-        # Insert new report
-        insert_query = adapt_query("INSERT INTO reports (user_id, target_type, target_id, reason) VALUES (?, ?, ?, ?)")
-        execute_query(insert_query, (user_id, content_type, content_id, f"{reason_emoji}: {final_reason}"))
-        
-        # Get total report count for this content
-        count_query = adapt_query("SELECT COUNT(*) FROM reports WHERE target_type = ? AND target_id = ?")
-        report_count = execute_query(count_query, (content_type, content_id), fetch='one')[0]
-        
-        return True, report_count
+        db_conn = get_db_connection()
+        with db_conn.get_connection() as conn:
+            cursor = conn.cursor()
+            placeholder = db_conn.get_placeholder()
+            
+            # Check if user has already reported this content
+            cursor.execute(f"SELECT COUNT(*) FROM reports WHERE user_id = {placeholder} AND target_type = {placeholder} AND target_id = {placeholder}", 
+                          (user_id, content_type, content_id))
+            existing_count = cursor.fetchone()[0]
+            
+            if existing_count > 0:
+                return False, "already_reported"
+            
+            # Get reason info
+            reason_emoji, reason_description = get_report_reason_info(reason_id)
+            final_reason = custom_reason if custom_reason else reason_description
+            
+            # Insert new report
+            cursor.execute(f"INSERT INTO reports (user_id, target_type, target_id, reason) VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder})", 
+                          (user_id, content_type, content_id, f"{reason_emoji}: {final_reason}"))
+            
+            # Get total report count for this content
+            cursor.execute(f"SELECT COUNT(*) FROM reports WHERE target_type = {placeholder} AND target_id = {placeholder}", 
+                          (content_type, content_id))
+            report_count = cursor.fetchone()[0]
+            
+            conn.commit()
+            return True, report_count
     except Exception as e:
         logger.error(f"Error submitting report: {e}")
         return False, str(e)
@@ -214,14 +226,19 @@ Please review and take appropriate action\\."""
 def get_content_details(content_type, content_id):
     """Get details about reported content"""
     try:
-        if content_type == 'comment':
-            query = adapt_query("SELECT comment_id, post_id, content, timestamp FROM comments WHERE comment_id = ?")
-            return execute_query(query, (content_id,), fetch='one')
-        elif content_type == 'post':
-            query = adapt_query("SELECT post_id, content, category, timestamp FROM posts WHERE post_id = ?")
-            return execute_query(query, (content_id,), fetch='one')
-        else:
-            return None
+        db_conn = get_db_connection()
+        with db_conn.get_connection() as conn:
+            cursor = conn.cursor()
+            placeholder = db_conn.get_placeholder()
+            
+            if content_type == 'comment':
+                cursor.execute(f"SELECT comment_id, post_id, content, timestamp FROM comments WHERE comment_id = {placeholder}", (content_id,))
+            elif content_type == 'post':
+                cursor.execute(f"SELECT post_id, content, category, timestamp FROM posts WHERE post_id = {placeholder}", (content_id,))
+            else:
+                return None
+                
+            return cursor.fetchone()
     except Exception as e:
         logger.error(f"Error getting content details: {e}")
         return None
@@ -354,9 +371,22 @@ async def handle_cancel_report(update, context):
 def dismiss_reports_for_content(content_type, content_id):
     """Dismiss all reports for specific content"""
     try:
-        delete_query = adapt_query("DELETE FROM reports WHERE target_type = ? AND target_id = ?")
-        result = execute_query(delete_query, (content_type, content_id))
-        return result  # This should return the number of affected rows
+        db_conn = get_db_connection()
+        with db_conn.get_connection() as conn:
+            cursor = conn.cursor()
+            placeholder = db_conn.get_placeholder()
+            
+            # Count reports before deletion
+            cursor.execute(f"SELECT COUNT(*) FROM reports WHERE target_type = {placeholder} AND target_id = {placeholder}", 
+                          (content_type, content_id))
+            report_count = cursor.fetchone()[0]
+            
+            # Delete the reports
+            cursor.execute(f"DELETE FROM reports WHERE target_type = {placeholder} AND target_id = {placeholder}", 
+                          (content_type, content_id))
+            
+            conn.commit()
+            return report_count
     except Exception as e:
         logger.error(f"Error dismissing reports: {e}")
         return 0
