@@ -258,37 +258,39 @@ def get_post_details_for_deletion(post_id: int) -> dict:
     Get post details for deletion confirmation
     """
     try:
-        conn = get_db()
-        cursor = conn.cursor()
+        db_conn = get_db_connection()
+        placeholder = db_conn.get_placeholder()
         
-        cursor.execute("""
-            SELECT p.post_id, p.content, p.category, p.timestamp, p.approved, 
-                   p.channel_message_id, p.post_number,
-                   COUNT(c.comment_id) as comment_count
-            FROM posts p
-            LEFT JOIN comments c ON p.post_id = c.post_id
-            WHERE p.post_id = ?
-            GROUP BY p.post_id
-        """, (post_id,))
-        
-        result = cursor.fetchone()
-        conn.close()
-        
-        if not result:
-            return None
-        
-        post_data = {
-            'id': result[0],
-            'content': result[1],
-            'category': result[2],
-            'timestamp': result[3],
-            'approved': result[4],
-            'channel_message_id': result[5],
-            'post_number': result[6],
-            'comment_count': result[7]
-        }
-        
-        return post_data
+        with db_conn.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            cursor.execute(f"""
+                SELECT p.post_id, p.content, p.category, p.timestamp, p.approved, 
+                       p.channel_message_id, p.post_number,
+                       COUNT(c.comment_id) as comment_count
+                FROM posts p
+                LEFT JOIN comments c ON p.post_id = c.post_id
+                WHERE p.post_id = {placeholder}
+                GROUP BY p.post_id, p.content, p.category, p.timestamp, p.approved, p.channel_message_id, p.post_number
+            """, (post_id,))
+            
+            result = cursor.fetchone()
+            
+            if not result:
+                return None
+            
+            post_data = {
+                'id': result[0],
+                'content': result[1],
+                'category': result[2],
+                'timestamp': result[3],
+                'approved': result[4],
+                'channel_message_id': result[5],
+                'post_number': result[6],
+                'comment_count': result[7]
+            }
+            
+            return post_data
         
     except Exception as e:
         logger.error(f"Error getting post details: {e}")
@@ -300,34 +302,36 @@ def get_comment_details_for_deletion(comment_id: int) -> dict:
     Get comment details for deletion confirmation
     """
     try:
-        conn = get_db()
-        cursor = conn.cursor()
+        db_conn = get_db_connection()
+        placeholder = db_conn.get_placeholder()
         
-        cursor.execute("""
-            SELECT c.comment_id, c.post_id, c.content, c.timestamp, c.parent_comment_id,
-                   COUNT(replies.comment_id) as reply_count
-            FROM comments c
-            LEFT JOIN comments replies ON c.comment_id = replies.parent_comment_id
-            WHERE c.comment_id = ?
-            GROUP BY c.comment_id
-        """, (comment_id,))
-        
-        result = cursor.fetchone()
-        conn.close()
-        
-        if not result:
-            return None
-        
-        comment_data = {
-            'id': result[0],
-            'post_id': result[1],
-            'content': result[2],
-            'timestamp': result[3],
-            'parent_comment_id': result[4],
-            'reply_count': result[5]
-        }
-        
-        return comment_data
+        with db_conn.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            cursor.execute(f"""
+                SELECT c.comment_id, c.post_id, c.content, c.timestamp, c.parent_comment_id,
+                       COUNT(replies.comment_id) as reply_count
+                FROM comments c
+                LEFT JOIN comments replies ON c.comment_id = replies.parent_comment_id
+                WHERE c.comment_id = {placeholder}
+                GROUP BY c.comment_id, c.post_id, c.content, c.timestamp, c.parent_comment_id
+            """, (comment_id,))
+            
+            result = cursor.fetchone()
+            
+            if not result:
+                return None
+            
+            comment_data = {
+                'id': result[0],
+                'post_id': result[1],
+                'content': result[2],
+                'timestamp': result[3],
+                'parent_comment_id': result[4],
+                'reply_count': result[5]
+            }
+            
+            return comment_data
         
     except Exception as e:
         logger.error(f"Error getting comment details: {e}")
