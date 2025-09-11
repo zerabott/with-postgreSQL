@@ -153,12 +153,12 @@ Please review and take appropriate action\\."""
         # Create action buttons for admins
         keyboard = [
             [
-                InlineKeyboardButton("🔄 Replace Comment", callback_data=f"admin_delete_comment_{comment_id}"),
+                InlineKeyboardButton("🔄 Replace Comment", callback_data=f"admin_replace_comment_{comment_id}"),
                 InlineKeyboardButton("📖 View Full Post", callback_data=f"view_post_{post_id}")
             ],
             [
                 InlineKeyboardButton("✅ Dismiss Report", callback_data=f"admin_dismiss_report_comment_{comment_id}"),
-                InlineKeyboardButton("⛔ Block Reporter", callback_data=f"block_{user_id}")
+                InlineKeyboardButton("⛔ Block Reporter", callback_data=f"admin_block_{user_id}")
             ]
         ]
         
