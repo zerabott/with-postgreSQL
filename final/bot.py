@@ -2299,7 +2299,7 @@ async def handle_comment_submission(update: Update, context: ContextTypes.DEFAUL
     # Send notification to the original poster that their confession got a comment
     try:
         from notifications import notify_comment_on_post
-        await notify_comment_on_post(context, post_id, content, user_id)
+        await notify_comment_on_post(context, post_id, content, user_id, comment_id)
         logger.info(f"Sent comment notification for post {post_id}")
     except Exception as e:
         logger.error(f"Error sending comment notification for post {post_id}: {e}")
