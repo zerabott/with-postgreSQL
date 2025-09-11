@@ -1886,87 +1886,30 @@ async def show_comments_directly(update: Update, context: ContextTypes.DEFAULT_T
     
     user_id = update.effective_user.id
     
-    # Send header message
-    header_text = f"💬 *Comments \\({total_comments} total\\)*\\n*Page {current_page} of {total_pages}*"
+    # Send header message using unified formatting
+    header_text = format_comments_header(total_comments, current_page, total_pages)
     await update.message.reply_text(
         header_text,
-        parse_mode="MarkdownV2"
+        parse_mode="HTML"
     )
     
     import asyncio
     
-    from html import escape as html_escape
-    
     # Send each comment as a separate message with delay
     for comment_index, comment_data in enumerate(comments_data):
-        # comment_data is already a flat dictionary with all comment properties
-        comment_id = comment_data['comment_id']
-        content = comment_data['content'] or ""
-        flagged = comment_data.get('flagged', 0)
-        timestamp = comment_data['timestamp']
-        likes = comment_data['likes'] if 'likes' in comment_data else 0
-        dislikes = comment_data['dislikes'] if 'dislikes' in comment_data else 0
-        is_reply = comment_data.get('is_reply', False)
-        # Calculate sequential comment number based on page and position
-        sequential_comment_number = (current_page - 1) * COMMENTS_PER_PAGE + comment_index + 1
-        
-        # Get user reaction to current comment
-        user_reaction = get_user_reaction(user_id, comment_id)
-        like_emoji = "👍✅" if user_reaction == "like" else "👍"
-        dislike_emoji = "👎✅" if user_reaction == "dislike" else "👎"
-        
-        # Build the text with proper reply formatting
-        date_text = format_date_only(timestamp)  # Get properly formatted date part
-        if is_reply and comment_data.get('original_comment'):
-            parent_text = comment_data['original_comment']['content'] or ""
-            # Use HTML escaping for safety and format as reply with blockquote
-            formatted = format_reply(html_escape(parent_text), html_escape(content))
-            comment_text = f"{formatted}\n\n<code>comment# {sequential_comment_number}</code>\n{date_text}"
-        else:
-            # If flagged/removed, show standard notice
-            if flagged:
-                display_content = html_escape("This comment was removed due to multiple reports.")
-            else:
-                display_content = html_escape(content)
-            comment_text = f"<b>comment# {sequential_comment_number}</b>\n\n{display_content}\n\n{date_text}"
-        
-        # Create reaction buttons with adaptive layout based on comment length
-        comment_length = len(content)
-        
-        if comment_length < 100:  # Short comments - compact 2x2 layout
-            comment_keyboard = [
-                [
-                    InlineKeyboardButton(f"{like_emoji} {likes}", callback_data=f"like_comment_{comment_id}"),
-                    InlineKeyboardButton(f"{dislike_emoji} {dislikes}", callback_data=f"dislike_comment_{comment_id}")
-                ],
-                [
-                    InlineKeyboardButton("💬 Reply", callback_data=f"reply_comment_{comment_id}"),
-                    InlineKeyboardButton("⚠️ Report", callback_data=f"report_comment_{comment_id}")
-                ]
-            ]
-        else:  # Long comments - single row layout for cleaner appearance
-            comment_keyboard = [
-                [
-                    InlineKeyboardButton(f"{like_emoji} {likes}", callback_data=f"like_comment_{comment_id}"),
-                    InlineKeyboardButton(f"{dislike_emoji} {dislikes}", callback_data=f"dislike_comment_{comment_id}"),
-                    InlineKeyboardButton("💬 Reply", callback_data=f"reply_comment_{comment_id}"),
-                    InlineKeyboardButton("⚠️ Report", callback_data=f"report_comment_{comment_id}")
-                ]
-            ]
-        comment_reply_markup = InlineKeyboardMarkup(comment_keyboard)
+        # Use unified comment formatting function
+        formatted_comment = format_comment_display(comment_data, user_id, current_page, comment_index)
         
         # Send the comment
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
-            text=comment_text,
-            reply_markup=comment_reply_markup,
-            parse_mode="HTML"
+            text=formatted_comment['text'],
+            reply_markup=formatted_comment['reply_markup'],
+            parse_mode=formatted_comment['parse_mode']
         )
         
         # Delay after comment to show separation
         await asyncio.sleep(1.0)
-        
-        # Note: Replies are handled in the flat comment structure returned by get_comments_paginated
     
     # Send navigation and action buttons at the end
     nav_keyboard = []
@@ -2112,8 +2055,8 @@ async def see_comments_callback(update: Update, context: ContextTypes.DEFAULT_TY
 
     user_id = update.effective_user.id
 
-    # Send header message
-    header_text = f"<b>💬 Comments ({total_comments} total)</b>\nPage {current_page} of {total_pages}"
+    # Send header message using unified formatting
+    header_text = format_comments_header(total_comments, current_page, total_pages)
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
         text=header_text,
@@ -2123,55 +2066,16 @@ async def see_comments_callback(update: Update, context: ContextTypes.DEFAULT_TY
     import asyncio
 
     # Send each comment as a separate message with delay
-    for item in comments_flat:
-        comment_id = item['comment_id']
-        content = item['content'] or ""
-        flagged = item.get('flagged', 0)
-        timestamp = item['timestamp']
-        likes = item['likes'] if 'likes' in item else 0
-        dislikes = item['dislikes'] if 'dislikes' in item else 0
-        is_reply = item.get('is_reply', False)
-        comment_number = item.get('comment_number')
-
-        # Get user reaction to current comment
-        user_reaction = get_user_reaction(user_id, comment_id)
-        like_emoji = "👍✅" if user_reaction == "like" else "👍"
-        dislike_emoji = "👎✅" if user_reaction == "dislike" else "👎"
-
-        # Build the text
-        date_text = format_date_only(timestamp)
-        if is_reply and item.get('original_comment'):
-            parent_text = item['original_comment']['content'] or ""
-            # Use HTML escaping for safety
-            formatted = format_reply(html_escape(parent_text), html_escape(content))
-            text = f"{formatted}\n\n<code>comment# {comment_number}</code>\n{date_text}"
-        else:
-            # If flagged/removed, show standard notice instead of original content
-            if flagged:
-                display_content = html_escape("This comment was removed due to multiple reports.")
-            else:
-                display_content = html_escape(content)
-            text = f"<b>comment# {comment_number}</b>\n\n{display_content}\n\n{date_text}"
-
-        # Create reaction buttons (always include Reply and Report in flat model)
-        comment_keyboard = [
-            [
-                InlineKeyboardButton(f"{like_emoji} {likes}", callback_data=f"like_comment_{comment_id}"),
-                InlineKeyboardButton(f"{dislike_emoji} {dislikes}", callback_data=f"dislike_comment_{comment_id}")
-            ],
-            [
-                InlineKeyboardButton("💬 Reply", callback_data=f"reply_comment_{comment_id}"),
-                InlineKeyboardButton("⚠️ Report", callback_data=f"report_comment_{comment_id}")
-            ]
-        ]
-        comment_reply_markup = InlineKeyboardMarkup(comment_keyboard)
-
+    for comment_index, item in enumerate(comments_flat):
+        # Use unified comment formatting function
+        formatted_comment = format_comment_display(item, user_id, current_page, comment_index)
+        
         # Send the comment
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
-            text=text,
-            reply_markup=comment_reply_markup,
-            parse_mode="HTML"
+            text=formatted_comment['text'],
+            reply_markup=formatted_comment['reply_markup'],
+            parse_mode=formatted_comment['parse_mode']
         )
 
         # Small delay between comments for readability
