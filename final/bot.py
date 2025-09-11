@@ -1895,14 +1895,17 @@ async def show_comments_directly(update: Update, context: ContextTypes.DEFAULT_T
     
     import asyncio
     
+    from html import escape as html_escape
+    
     # Send each comment as a separate message with delay
     for comment_index, comment_data in enumerate(comments_data):
         # comment_data is already a flat dictionary with all comment properties
         comment_id = comment_data['comment_id']
-        content = comment_data['content']
+        content = comment_data['content'] or ""
         timestamp = comment_data['timestamp']
-        likes = comment_data['likes']
-        dislikes = comment_data['dislikes']
+        likes = comment_data['likes'] if 'likes' in comment_data else 0
+        dislikes = comment_data['dislikes'] if 'dislikes' in comment_data else 0
+        is_reply = comment_data.get('is_reply', False)
         # Calculate sequential comment number based on page and position
         sequential_comment_number = (current_page - 1) * COMMENTS_PER_PAGE + comment_index + 1
         
@@ -1911,9 +1914,15 @@ async def show_comments_directly(update: Update, context: ContextTypes.DEFAULT_T
         like_emoji = "👍✅" if user_reaction == "like" else "👍"
         dislike_emoji = "👎✅" if user_reaction == "dislike" else "👎"
         
-        # Format comment text with proper line spacing using sequential number
-        formatted_date = format_date_only(timestamp)  # Get properly escaped date part
-        comment_text = f"comment\\# {sequential_comment_number}\n\n{escape_markdown_text(content)}\n\n{formatted_date}"
+        # Build the text with proper reply formatting
+        date_text = format_date_only(timestamp)  # Get properly formatted date part
+        if is_reply and comment_data.get('original_comment'):
+            parent_text = comment_data['original_comment']['content'] or ""
+            # Use HTML escaping for safety and format as reply with blockquote
+            formatted = format_reply(html_escape(parent_text), html_escape(content))
+            comment_text = f"{formatted}\n\n<code>comment# {sequential_comment_number}</code>\n{date_text}"
+        else:
+            comment_text = f"<b>comment# {sequential_comment_number}</b>\n\n{html_escape(content)}\n\n{date_text}"
         
         # Create reaction buttons with adaptive layout based on comment length
         comment_length = len(content)
@@ -1945,7 +1954,7 @@ async def show_comments_directly(update: Update, context: ContextTypes.DEFAULT_T
             chat_id=update.effective_chat.id,
             text=comment_text,
             reply_markup=comment_reply_markup,
-            parse_mode="MarkdownV2"
+            parse_mode="HTML"
         )
         
         # Delay after comment to show separation
