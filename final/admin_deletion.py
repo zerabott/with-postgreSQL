@@ -414,6 +414,110 @@ def clear_reports_for_content(target_type: str, target_id: int) -> tuple[bool, i
         return False, 0
 
 
+def replace_comment_with_message(comment_id: int, admin_user_id: int, replacement_message: str = "[This comment has been removed by moderators]") -> tuple[bool, dict]:
+    """
+    Replace a comment's content with a removal message while preserving the comment structure.
+    Also replaces any replies to preserve the conversation flow.
+    
+    Returns (success, replacement_stats)
+    """
+    try:
+        db_conn = get_db_connection()
+        placeholder = db_conn.get_placeholder()
+        
+        with db_conn.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # First, verify the comment exists and get its details
+            cursor.execute(f"SELECT comment_id, post_id, content, parent_comment_id FROM comments WHERE comment_id = {placeholder}", (comment_id,))
+            comment_data = cursor.fetchone()
+            
+            if not comment_data:
+                return False, {"error": f"Comment #{comment_id} not found"}
+            
+            comment_id_db, post_id, original_content, parent_comment_id = comment_data
+            
+            # Start transaction
+            if db_conn.use_postgresql:
+                cursor.execute("BEGIN")
+            else:
+                cursor.execute("BEGIN TRANSACTION")
+            
+            try:
+                replacement_stats = {
+                    'comments_replaced': 0,
+                    'replies_replaced': 0,
+                    'reports_cleared': 0
+                }
+                
+                # Replace the main comment content
+                cursor.execute(f"UPDATE comments SET content = {placeholder}, flagged = 1 WHERE comment_id = {placeholder}", (replacement_message, comment_id))
+                replacement_stats['comments_replaced'] = 1
+                
+                # Get all reply IDs to this comment
+                cursor.execute(f"SELECT comment_id FROM comments WHERE parent_comment_id = {placeholder}", (comment_id,))
+                reply_ids = [row[0] for row in cursor.fetchall()]
+                
+                # Replace content of all replies too (to maintain conversation flow)
+                if reply_ids:
+                    placeholders_str = ','.join([placeholder for _ in reply_ids])
+                    cursor.execute(f"UPDATE comments SET content = {placeholder}, flagged = 1 WHERE comment_id IN ({placeholders_str})", ["[This reply has been removed by moderators]"] + reply_ids)
+                    replacement_stats['replies_replaced'] = len(reply_ids)
+                
+                # Clear all reports on the comment and its replies
+                all_comment_ids = [comment_id] + reply_ids
+                
+                if all_comment_ids:
+                    # Count reports before clearing them
+                    placeholders_str = ','.join([placeholder for _ in all_comment_ids])
+                    cursor.execute(f"SELECT COUNT(*) FROM reports WHERE target_type = 'comment' AND target_id IN ({placeholders_str})", all_comment_ids)
+                    reports_count = cursor.fetchone()[0]
+                    replacement_stats['reports_cleared'] = reports_count
+                    
+                    # Clear the reports
+                    cursor.execute(f"DELETE FROM reports WHERE target_type = 'comment' AND target_id IN ({placeholders_str})", all_comment_ids)
+                
+                # Log the replacement action
+                log_admin_deletion(
+                    admin_user_id=admin_user_id,
+                    action_type="REPLACE_COMMENT",
+                    target_type="comment",
+                    target_id=comment_id,
+                    details={
+                        "post_id": post_id,
+                        "original_content_preview": original_content[:100] + "..." if len(original_content) > 100 else original_content,
+                        "replacement_message": replacement_message,
+                        "is_reply": bool(parent_comment_id),
+                        "parent_comment_id": parent_comment_id,
+                        "replacement_stats": replacement_stats,
+                        "reason": "Admin content replacement due to reports"
+                    }
+                )
+                
+                # Commit the transaction
+                if db_conn.use_postgresql:
+                    cursor.execute("COMMIT")
+                else:
+                    cursor.execute("COMMIT")
+                    
+                conn.commit()  # Also call conn.commit() for safety
+                
+                return True, replacement_stats
+                
+            except Exception as e:
+                if db_conn.use_postgresql:
+                    cursor.execute("ROLLBACK")
+                else:
+                    cursor.execute("ROLLBACK")
+                conn.rollback()
+                logger.error(f"Error during comment replacement transaction: {e}")
+                return False, {"error": f"Database error during replacement: {str(e)}"}
+                
+    except Exception as e:
+        logger.error(f"Error replacing comment {comment_id}: {e}")
+        return False, {"error": f"Error replacing comment: {str(e)}"}
+
+
 async def delete_channel_message(context, channel_message_id: int) -> tuple[bool, str]:
     """
     Delete a message from the channel
