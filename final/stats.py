@@ -1,5 +1,5 @@
 from db_connection import get_db_connection
-from utils import format_join_date
+# Note: format_join_date imported locally to avoid circular imports
 
 def get_user_stats(user_id):
     """Get comprehensive user statistics"""
@@ -106,3 +106,4 @@ def get_channel_stats():
             'flagged_posts': flagged_posts,
             'flagged_comments': flagged_comments
         }
+
