@@ -7097,7 +7097,30 @@ def main():
     
     # Run the bot
     logger.info("Starting University Confession Bot...")
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    
+    try:
+        # Use the standard run_polling method with proper initialization for v20+
+        application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
+        
+    except KeyboardInterrupt:
+        logger.info("Bot stopped by user")
+    except Exception as e:
+        logger.error(f"Bot error: {e}")
+        # Try alternative approach if the first fails
+        try:
+            logger.info("Retrying with alternative approach...")
+            import asyncio
+            
+            async def run_bot_alternative():
+                async with application:
+                    await application.start()
+                    await application.updater.start_polling(allowed_updates=Update.ALL_TYPES)
+                    await application.updater.idle()
+                    
+            asyncio.run(run_bot_alternative())
+        except Exception as e2:
+            logger.error(f"Alternative approach also failed: {e2}")
+            raise
 
 if __name__ == '__main__':
     main()
