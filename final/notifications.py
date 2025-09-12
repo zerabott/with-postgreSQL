@@ -268,8 +268,8 @@ def subscribe_to_post(user_id: int, post_id: int) -> bool:
             if db_conn.use_postgresql:
                 cursor.execute(
                     f'''INSERT INTO post_subscriptions (user_id, post_id, active)
-                        VALUES ({placeholder}, {placeholder}, 1)
-                        ON CONFLICT (user_id, post_id) DO UPDATE SET active = 1''',
+                        VALUES ({placeholder}, {placeholder}, TRUE)
+                        ON CONFLICT (user_id, post_id) DO UPDATE SET active = TRUE''',
                     (user_id, post_id)
                 )
             else:
@@ -290,11 +290,18 @@ def unsubscribe_from_post(user_id: int, post_id: int) -> bool:
         placeholder = db_conn.get_placeholder()
         with get_db() as conn:
             cursor = conn.cursor()
-            cursor.execute(
-                f'''UPDATE post_subscriptions SET active = 0 
-                    WHERE user_id = {placeholder} AND post_id = {placeholder}''',
-                (user_id, post_id)
-            )
+            if db_conn.use_postgresql:
+                cursor.execute(
+                    f'''UPDATE post_subscriptions SET active = FALSE 
+                        WHERE user_id = {placeholder} AND post_id = {placeholder}''',
+                    (user_id, post_id)
+                )
+            else:
+                cursor.execute(
+                    f'''UPDATE post_subscriptions SET active = 0 
+                        WHERE user_id = {placeholder} AND post_id = {placeholder}''',
+                    (user_id, post_id)
+                )
             conn.commit()
             return True
     except Exception as e:
@@ -307,11 +314,18 @@ def get_post_subscribers(post_id: int) -> List[int]:
     placeholder = db_conn.get_placeholder()
     with get_db() as conn:
         cursor = conn.cursor()
-        cursor.execute(
-            f'''SELECT user_id FROM post_subscriptions 
-                WHERE post_id = {placeholder} AND active = 1''',
-            (post_id,)
-        )
+        if db_conn.use_postgresql:
+            cursor.execute(
+                f'''SELECT user_id FROM post_subscriptions 
+                    WHERE post_id = {placeholder} AND active = TRUE''',
+                (post_id,)
+            )
+        else:
+            cursor.execute(
+                f'''SELECT user_id FROM post_subscriptions 
+                    WHERE post_id = {placeholder} AND active = 1''',
+                (post_id,)
+            )
         return [row[0] for row in cursor.fetchall()]
 
 async def send_notification(context: ContextTypes.DEFAULT_TYPE, user_id: int, 
@@ -349,12 +363,20 @@ async def send_notification(context: ContextTypes.DEFAULT_TYPE, user_id: int,
         placeholder = db_conn.get_placeholder()
         with get_db() as conn:
             cursor = conn.cursor()
-            cursor.execute(
-                f'''UPDATE notification_history SET delivered = 1 
-                    WHERE user_id = {placeholder} AND notification_type = {placeholder} AND sent_at = 
-                    (SELECT MAX(sent_at) FROM notification_history WHERE user_id = {placeholder})''',
-                (user_id, notification_type, user_id)
-            )
+            if db_conn.use_postgresql:
+                cursor.execute(
+                    f'''UPDATE notification_history SET delivered = TRUE 
+                        WHERE user_id = {placeholder} AND notification_type = {placeholder} AND sent_at = 
+                        (SELECT MAX(sent_at) FROM notification_history WHERE user_id = {placeholder})''',
+                    (user_id, notification_type, user_id)
+                )
+            else:
+                cursor.execute(
+                    f'''UPDATE notification_history SET delivered = 1 
+                        WHERE user_id = {placeholder} AND notification_type = {placeholder} AND sent_at = 
+                        (SELECT MAX(sent_at) FROM notification_history WHERE user_id = {placeholder})''',
+                    (user_id, notification_type, user_id)
+                )
             conn.commit()
         
         return True
@@ -542,9 +564,14 @@ async def notify_trending_post(context: ContextTypes.DEFAULT_TYPE, post_id: int,
         # Get users who want trending alerts
         with get_db() as conn:
             cursor = conn.cursor()
-            cursor.execute('''
-                SELECT user_id FROM notification_preferences WHERE trending_alerts = 1
-            ''')
+            if db_conn.use_postgresql:
+                cursor.execute('''
+                    SELECT user_id FROM notification_preferences WHERE trending_alerts = TRUE
+                ''')
+            else:
+                cursor.execute('''
+                    SELECT user_id FROM notification_preferences WHERE trending_alerts = 1
+                ''')
             trending_subscribers = [str(row[0]) for row in cursor.fetchall()]
         
         # Filter out already notified users and post author
@@ -618,12 +645,19 @@ async def notify_trending_post(context: ContextTypes.DEFAULT_TYPE, post_id: int,
 
 def get_users_for_daily_digest() -> List[Tuple[int, str]]:
     """Get users who want daily digest and their preferred time"""
+    db_conn = get_db_connection()
     with get_db() as conn:
         cursor = conn.cursor()
-        cursor.execute('''
-            SELECT user_id, digest_time FROM notification_preferences 
-            WHERE daily_digest = 1
-        ''')
+        if db_conn.use_postgresql:
+            cursor.execute('''
+                SELECT user_id, digest_time FROM notification_preferences 
+                WHERE daily_digest = TRUE
+            ''')
+        else:
+            cursor.execute('''
+                SELECT user_id, digest_time FROM notification_preferences 
+                WHERE daily_digest = 1
+            ''')
         return cursor.fetchall()
 
 async def send_daily_digest(context: ContextTypes.DEFAULT_TYPE, user_id: int):
