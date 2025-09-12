@@ -575,3 +575,120 @@ def get_post_author_id(post_id):
         cursor.execute(f'SELECT user_id FROM posts WHERE post_id = {placeholder}', (post_id,))
         result = cursor.fetchone()
         return result[0] if result else None
+
+def search_user_by_id(user_id):
+    """Search for a user by their exact user ID"""
+    db_conn = get_db_connection()
+    with db_conn.get_connection() as conn:
+        cursor = conn.cursor()
+        placeholder = db_conn.get_placeholder()
+        cursor.execute(f'''
+            SELECT user_id, username, first_name, last_name, join_date, 
+                   questions_asked, comments_posted, blocked
+            FROM users WHERE user_id = {placeholder}
+        ''', (user_id,))
+        result = cursor.fetchone()
+        return [result] if result else []
+
+def search_users_by_name(search_term, limit=10):
+    """Search for users by username, first name, or last name (case-insensitive partial match)"""
+    db_conn = get_db_connection()
+    with db_conn.get_connection() as conn:
+        cursor = conn.cursor()
+        placeholder = db_conn.get_placeholder()
+        
+        # Use ILIKE for PostgreSQL (case-insensitive) or LIKE with LOWER for SQLite
+        if db_conn.use_postgresql:
+            search_pattern = f'%{search_term}%'
+            cursor.execute(f'''
+                SELECT user_id, username, first_name, last_name, join_date, 
+                       questions_asked, comments_posted, blocked
+                FROM users 
+                WHERE username ILIKE {placeholder} 
+                   OR first_name ILIKE {placeholder} 
+                   OR last_name ILIKE {placeholder}
+                ORDER BY join_date DESC
+                LIMIT {placeholder}
+            ''', (search_pattern, search_pattern, search_pattern, limit))
+        else:
+            search_pattern = f'%{search_term.lower()}%'
+            cursor.execute(f'''
+                SELECT user_id, username, first_name, last_name, join_date, 
+                       questions_asked, comments_posted, blocked
+                FROM users 
+                WHERE LOWER(username) LIKE {placeholder} 
+                   OR LOWER(first_name) LIKE {placeholder} 
+                   OR LOWER(last_name) LIKE {placeholder}
+                ORDER BY join_date DESC
+                LIMIT {placeholder}
+            ''', (search_pattern, search_pattern, search_pattern, limit))
+        
+        return cursor.fetchall()
+
+def get_recent_users(limit=10):
+    """Get recently joined users"""
+    db_conn = get_db_connection()
+    with db_conn.get_connection() as conn:
+        cursor = conn.cursor()
+        placeholder = db_conn.get_placeholder()
+        cursor.execute(f'''
+            SELECT user_id, username, first_name, last_name, join_date, 
+                   questions_asked, comments_posted, blocked
+            FROM users 
+            ORDER BY join_date DESC
+            LIMIT {placeholder}
+        ''', (limit,))
+        return cursor.fetchall()
+
+def get_active_users(limit=10):
+    """Get users with recent activity (posts or comments)"""
+    db_conn = get_db_connection()
+    with db_conn.get_connection() as conn:
+        cursor = conn.cursor()
+        placeholder = db_conn.get_placeholder()
+        
+        if db_conn.use_postgresql:
+            cursor.execute(f'''
+                SELECT DISTINCT u.user_id, u.username, u.first_name, u.last_name, u.join_date, 
+                       u.questions_asked, u.comments_posted, u.blocked
+                FROM users u
+                LEFT JOIN posts p ON u.user_id = p.user_id
+                LEFT JOIN comments c ON u.user_id = c.user_id
+                WHERE (p.timestamp >= NOW() - INTERVAL '7 days' OR c.timestamp >= NOW() - INTERVAL '7 days')
+                   OR (u.questions_asked > 0 OR u.comments_posted > 0)
+                ORDER BY GREATEST(COALESCE(MAX(p.timestamp), '1970-01-01'::timestamp), COALESCE(MAX(c.timestamp), '1970-01-01'::timestamp)) DESC
+                LIMIT {placeholder}
+            ''', (limit,))
+        else:
+            cursor.execute(f'''
+                SELECT DISTINCT u.user_id, u.username, u.first_name, u.last_name, u.join_date, 
+                       u.questions_asked, u.comments_posted, u.blocked
+                FROM users u
+                LEFT JOIN posts p ON u.user_id = p.user_id
+                LEFT JOIN comments c ON u.user_id = c.user_id
+                WHERE (p.timestamp >= datetime('now', '-7 days') OR c.timestamp >= datetime('now', '-7 days'))
+                   OR (u.questions_asked > 0 OR u.comments_posted > 0)
+                ORDER BY MAX(COALESCE(p.timestamp, '1970-01-01'), COALESCE(c.timestamp, '1970-01-01')) DESC
+                LIMIT {placeholder}
+            ''', (limit,))
+        return cursor.fetchall()
+
+def block_user(user_id):
+    """Block a user"""
+    db_conn = get_db_connection()
+    with db_conn.get_connection() as conn:
+        cursor = conn.cursor()
+        placeholder = db_conn.get_placeholder()
+        cursor.execute(f'UPDATE users SET blocked = 1 WHERE user_id = {placeholder}', (user_id,))
+        conn.commit()
+        return cursor.rowcount > 0
+
+def unblock_user(user_id):
+    """Unblock a user"""
+    db_conn = get_db_connection()
+    with db_conn.get_connection() as conn:
+        cursor = conn.cursor()
+        placeholder = db_conn.get_placeholder()
+        cursor.execute(f'UPDATE users SET blocked = 0 WHERE user_id = {placeholder}', (user_id,))
+        conn.commit()
+        return cursor.rowcount > 0
