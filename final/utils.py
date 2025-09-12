@@ -151,6 +151,15 @@ def format_date_only(timestamp_str):
     except:
         return escape_markdown_text(str(timestamp_str)[:10])  # Fallback to first 10 chars
 
+def format_date_only_html(timestamp_str):
+    """Format timestamp to show only date part for HTML display (no escaping needed)"""
+    try:
+        from datetime import datetime
+        dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+        return dt.strftime('%Y-%m-%d')
+    except:
+        return str(timestamp_str)[:10]  # Fallback to first 10 chars
+
 def format_time_ago(dt):
     """Format a datetime object to show time ago (e.g., '2h ago', '1d ago')"""
     from datetime import datetime, timezone
