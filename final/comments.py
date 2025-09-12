@@ -323,26 +323,6 @@ def get_parent_comment_for_reply(comment_id):
             f"SELECT parent_comment_id FROM comments WHERE comment_id = {placeholder}",
             (comment_id,)
         )
-
-
-def replace_comment_with_notice(comment_id: int, notice: str = "This comment was removed due to multiple reports.") -> bool:
-    """Replace a comment's content with a standard removal notice and flag it.
-    Returns True on success.
-    """
-    try:
-        db_conn = get_db_connection()
-        with db_conn.get_connection() as conn:
-            cursor = conn.cursor()
-            placeholder = db_conn.get_placeholder()
-            cursor.execute(
-                f"UPDATE comments SET content = {placeholder}, flagged = 1 WHERE comment_id = {placeholder}",
-                (notice, comment_id)
-            )
-            conn.commit()
-            return True
-    except Exception as e:
-        logger.error(f"Error replacing comment {comment_id} with notice: {e}")
-        return False
         result = cursor.fetchone()
         
         if not result or not result[0]:
@@ -369,6 +349,26 @@ def replace_comment_with_notice(comment_id: int, notice: str = "This comment was
             }
         
         return None
+
+
+def replace_comment_with_notice(comment_id: int, notice: str = "This comment was removed due to multiple reports.") -> bool:
+    """Replace a comment's content with a standard removal notice and flag it.
+    Returns True on success.
+    """
+    try:
+        db_conn = get_db_connection()
+        with db_conn.get_connection() as conn:
+            cursor = conn.cursor()
+            placeholder = db_conn.get_placeholder()
+            cursor.execute(
+                f"UPDATE comments SET content = {placeholder}, flagged = 1 WHERE comment_id = {placeholder}",
+                (notice, comment_id)
+            )
+            conn.commit()
+            return True
+    except Exception as e:
+        logger.error(f"Error replacing comment {comment_id} with notice: {e}")
+        return False
 
 def get_comment_reply_level(comment_id):
     """Get the reply level of a comment (0 = main comment, 1 = first reply, 2 = second reply)"""
@@ -419,7 +419,7 @@ def format_reply(parent_text, child_text, parent_author="Anonymous"):
 def format_comment_display(comment_data, user_id, current_page=1, comment_index=0):
     """Unified function to format comments for consistent display across all interfaces"""
     from html import escape as html_escape
-    from utils import format_date_only
+    from utils import format_date_only_html
     from config import COMMENTS_PER_PAGE
     
     comment_id = comment_data['comment_id']
@@ -439,7 +439,7 @@ def format_comment_display(comment_data, user_id, current_page=1, comment_index=
     dislike_emoji = "👎✅" if user_reaction == "dislike" else "👎"
     
     # Build the text with proper reply formatting
-    date_text = format_date_only(timestamp)
+    date_text = format_date_only_html(timestamp)
     
     if is_reply and comment_data.get('original_comment'):
         parent_text = comment_data['original_comment']['content'] or ""
