@@ -370,49 +370,68 @@ async def notify_comment_on_post(context: ContextTypes.DEFAULT_TYPE, post_id: in
             
             post_content, category, post_author_id = post_data
         
-        # Get subscribers (exclude the commenter and post author)
+        # Get subscribers (only exclude the commenter, not the post author)
         subscribers = get_post_subscribers(post_id)
-        exclude_users = {commenter_id, post_author_id} if commenter_id else {post_author_id}
-        subscribers = [uid for uid in subscribers if uid not in exclude_users]
+        if commenter_id:
+            subscribers = [uid for uid in subscribers if uid != commenter_id]
         
-        # Auto-subscribe post author if they have comment notifications enabled
+        # Always auto-subscribe post author and ensure they get notified (if they have notifications enabled)
         author_prefs = get_user_preferences(post_author_id)
-        if author_prefs['comment_notifications'] and post_author_id not in subscribers:
+        if author_prefs['comment_notifications']:
+            # Subscribe the post author to their own post
             subscribe_to_post(post_author_id, post_id)
-            if post_author_id != commenter_id:
+            # Add post author to notification list if they're not the commenter and not already in the list
+            if post_author_id != commenter_id and post_author_id not in subscribers:
                 subscribers.append(post_author_id)
         
         # Send notifications
+        successful_notifications = 0
+        failed_notifications = 0
+        
         for subscriber_id in subscribers:
-            prefs = get_user_preferences(subscriber_id)
-            if not prefs['comment_notifications']:
+            try:
+                prefs = get_user_preferences(subscriber_id)
+                if not prefs['comment_notifications']:
+                    logger.debug(f"User {subscriber_id} has comment notifications disabled, skipping")
+                    continue
+                
+                # Create notification content
+                title = f"New Comment on Post #{post_id}"
+                content = f"Category: {category}\n"
+                content += f"Post: {truncate_text(post_content, 50)}...\n"
+                content += f"Comment: {truncate_text(comment_content, 80)}..."
+                
+                # Create keyboard with Reply button that replies to the specific comment
+                reply_callback = f"reply_comment_{comment_id}" if comment_id else f"add_comment_{post_id}"
+                keyboard = InlineKeyboardMarkup([
+                    [
+                        InlineKeyboardButton("👀 View Comments", callback_data=f"see_comments_{post_id}_1"),
+                        InlineKeyboardButton("💬 Reply", callback_data=reply_callback)
+                    ],
+                    [
+                        InlineKeyboardButton("🔕 Unsubscribe", callback_data=f"unsub_{post_id}")
+                    ]
+                ])
+                
+                success = await send_notification(
+                    context, subscriber_id, "comment", title, content, 
+                    post_id=post_id, comment_id=comment_id, keyboard=keyboard
+                )
+                
+                if success:
+                    successful_notifications += 1
+                    logger.debug(f"Successfully sent comment notification to user {subscriber_id}")
+                else:
+                    failed_notifications += 1
+                    logger.warning(f"Failed to send comment notification to user {subscriber_id}")
+                
+                # Small delay to avoid rate limits
+                await asyncio.sleep(0.1)
+                
+            except Exception as e:
+                failed_notifications += 1
+                logger.error(f"Error processing notification for user {subscriber_id}: {e}")
                 continue
-            
-            # Create notification content
-            title = f"New Comment on Post #{post_id}"
-            content = f"Category: {category}\n"
-            content += f"Post: {truncate_text(post_content, 50)}...\n"
-            content += f"Comment: {truncate_text(comment_content, 80)}..."
-            
-            # Create keyboard with Reply button that replies to the specific comment
-            reply_callback = f"reply_comment_{comment_id}" if comment_id else f"add_comment_{post_id}"
-            keyboard = InlineKeyboardMarkup([
-                [
-                    InlineKeyboardButton("👀 View Comments", callback_data=f"see_comments_{post_id}_1"),
-                    InlineKeyboardButton("💬 Reply", callback_data=reply_callback)
-                ],
-                [
-                    InlineKeyboardButton("🔕 Unsubscribe", callback_data=f"unsub_{post_id}")
-                ]
-            ])
-            
-            await send_notification(
-                context, subscriber_id, "comment", title, content, 
-                post_id=post_id, keyboard=keyboard
-            )
-            
-            # Small delay to avoid rate limits
-            await asyncio.sleep(0.1)
             
         logger.info(f"Sent comment notifications for post {post_id} to {len(subscribers)} users")
         
