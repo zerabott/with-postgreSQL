@@ -13,7 +13,7 @@ import logging
 # Import ranking system components
 from enhanced_ranking_system import EnhancedPointSystem, EnhancedAchievementSystem, UserRank
 from config import DB_PATH, ADMIN_IDS
-from utils import escape_markdown_text
+# Note: escape_markdown_text imported locally to avoid circular imports
 
 logger = logging.getLogger(__name__)
 
@@ -545,6 +545,7 @@ async def show_my_rank(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def notify_rank_up(context: ContextTypes.DEFAULT_TYPE, user_id: int, rank_name: str, rank_emoji: str):
     """Notify user about rank up"""
     try:
+        from utils import escape_markdown_text  # Import locally to avoid circular import
         message = f"🎉 *RANK UP!* 🎉\n\n" \
                  f"Congratulations! You've achieved the rank of:\n" \
                  f"{rank_emoji} **{escape_markdown_text(rank_name)}**\n\n" \
@@ -563,6 +564,7 @@ async def notify_achievement_earned(context: ContextTypes.DEFAULT_TYPE, user_id:
                                   achievement_name: str, description: str, points: int):
     """Notify user about achievement earned"""
     try:
+        from utils import escape_markdown_text  # Import locally to avoid circular import
         message = f"🏆 *ACHIEVEMENT UNLOCKED!* 🏆\n\n" \
                  f"**{escape_markdown_text(achievement_name)}**\n" \
                  f"_{escape_markdown_text(description)}_\n\n" \
