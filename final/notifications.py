@@ -44,7 +44,7 @@ class NotificationEngine:
             else:
                 cursor.execute('''
                     CREATE TABLE IF NOT EXISTS notification_preferences (
-                        user_id SERIAL PRIMARY KEY,
+                        user_id INTEGER PRIMARY KEY,
                         comment_notifications BOOLEAN DEFAULT 1,
                         favorite_categories TEXT DEFAULT '',
                         daily_digest BOOLEAN DEFAULT 1,
@@ -119,17 +119,30 @@ class NotificationEngine:
                 ''')
 
             # Trending posts cache for alerts
-            cursor.execute(adapt_query('''
-                CREATE TABLE IF NOT EXISTS trending_cache (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    post_id INTEGER,
-                    trend_score REAL,
-                    category TEXT,
-                    cached_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    notified_users TEXT DEFAULT '',
-                    FOREIGN KEY (post_id) REFERENCES posts (post_id)
-                )
-            '''))
+            if db_conn.use_postgresql:
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS trending_cache (
+                        id SERIAL PRIMARY KEY,
+                        post_id INTEGER,
+                        trend_score REAL,
+                        category TEXT,
+                        cached_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        notified_users TEXT DEFAULT '',
+                        FOREIGN KEY (post_id) REFERENCES posts (post_id)
+                    )
+                ''')
+            else:
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS trending_cache (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        post_id INTEGER,
+                        trend_score REAL,
+                        category TEXT,
+                        cached_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        notified_users TEXT DEFAULT '',
+                        FOREIGN KEY (post_id) REFERENCES posts (post_id)
+                    )
+                ''')
 
             conn.commit()
             logger.info("Notification database tables initialized")
